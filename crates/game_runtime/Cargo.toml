@@ -1,0 +1,9 @@
+[package]
+name = "game_runtime"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bevy = "0.17.3"
+game_core = { path = "../game_core"}
+game_logic = { path = "../game_logic" }

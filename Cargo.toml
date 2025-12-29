@@ -1,0 +1,13 @@
+
+[profile.dev]
+opt-level = 0
+debug = true
+incremental = true
+
+[workspace]
+members = [
+    "crates/game_core",
+    "crates/game_logic",
+    "crates/game_runtime"
+    ]
+resolver = "3"
