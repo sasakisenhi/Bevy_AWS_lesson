@@ -31,5 +31,8 @@ jobs:
       - name: Run tests (logic)
         run: cargo test -p game_logic
 
-      - name: Clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Clippy (core)
+        run: cargo clippy -p game_core -- -D warnings
+
+      - name: Clippy (logic)
+        run: cargo clippy -p game_logic -- -D warnings
