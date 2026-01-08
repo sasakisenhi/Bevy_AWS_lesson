@@ -1,13 +1,14 @@
 name: CI
 
 on:
-  push:
-    branches: [ "master" ]
   pull_request:
+    branches: [ "master" ]
+  push:
     branches: [ "master" ]
 
 jobs:
-  test:
+  pr-gate:
+    name: PR Gate (fast & strict)
     runs-on: ubuntu-latest
 
     steps:
@@ -15,6 +16,8 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -25,14 +28,54 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Run tests (core)
-        run: cargo test -p game_core
+      # ---------- フォーマッティング ----------
+      - name: Check formatting
+        run: cargo fmt -- --check
 
-      - name: Run tests (logic)
-        run: cargo test -p game_logic
+      # ---------- 安全性 / 公開リポジトリチェック ----------
+      - name: Check forbidden files
+        run: |
+          forbidden_files=(
+            ".env"
+            ".env.local"
+            "*.pem"
+            "*.key"
+            "*.p12"
+            "id_rsa"
+          )
 
+          for pattern in "${forbidden_files[@]}"; do
+            if find . -name "$pattern" | grep -q .; then
+              echo "Forbidden file detected: $pattern"
+              exit 1
+            fi
+          done
+
+      - name: Check license file
+        run: |
+          if [ ! -f LICENSE ] && [ ! -f LICENSE.md ]; then
+            echo "LICENSE file is missing"
+            exit 1
+          fi
+
+      # ---------- 健全性チェック ----------
+      - name: Cargo check (fast)
+        run: cargo check --workspace --locked
+
+      # ---------- ユニットテスト ----------
+      - name: Run unit tests (core)
+        run: cargo test -p game_core --locked
+
+      - name: Run unit tests (logic)
+        run: cargo test -p game_logic --locked
+
+      # ---------- リント ----------
       - name: Clippy (core)
         run: cargo clippy -p game_core -- -D warnings
 
       - name: Clippy (logic)
         run: cargo clippy -p game_logic -- -D warnings
+
+      # ---------- ビルド ----------
+      - name: Build workspace
+        run: cargo build --workspace --locked 
