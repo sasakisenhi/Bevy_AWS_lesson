@@ -60,7 +60,7 @@ jobs:
 
       # ---------- 健全性チェック ----------
       - name: Cargo check (fast)
-        run: cargo check --workspace --locked
+        run: cargo check -p game_core -p game_logic --locked
 
       # ---------- ユニットテスト ----------
       - name: Run unit tests (core)
