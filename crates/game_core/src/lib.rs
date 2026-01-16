@@ -1,4 +1,4 @@
-#[derive(Debug,Clone,Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct Vec2 {
     pub x: f32,
     pub y: f32,
@@ -36,7 +36,7 @@ mod tests {
 
     #[test]
     fn movement_is_accumulative() {
-    let mut player = Player::new(5.0, 5.0);
+        let mut player = Player::new(5.0, 5.0);
 
         player.move_by(1.0, 0.0);
         player.move_by(0.0, -1.0);

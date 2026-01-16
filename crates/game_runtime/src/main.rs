@@ -1,5 +1,5 @@
-use bevy::prelude::*;
 use bevy::input::ButtonInput;
+use bevy::prelude::*;
 
 use game_core::Player;
 use game_logic::{Command, apply_command};
@@ -16,7 +16,7 @@ fn main() {
 
     App::new()
         .add_plugins(DefaultPlugins)
-        .add_message::<CommandEvent>()    //イベント登録
+        .add_message::<CommandEvent>() //イベント登録
         .add_systems(Startup, setup)
         .add_systems(Update, handle_input)
         .add_systems(Update, process_commands)
@@ -83,9 +83,7 @@ fn process_commands(
     }
 }
 
-fn sync_player_position(
-    mut query: Query<(&PlayerComponent, &mut Transform)>,
-) {
+fn sync_player_position(mut query: Query<(&PlayerComponent, &mut Transform)>) {
     for (player, mut transform) in &mut query {
         transform.translation.x = player.player.position.x;
         transform.translation.y = player.player.position.y;

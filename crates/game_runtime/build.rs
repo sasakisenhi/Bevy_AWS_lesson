@@ -3,10 +3,8 @@ use std::path::PathBuf;
 
 fn main() {
     // 環境変数を取得（存在しない場合はデフォルト値）
-    let github_sha = env::var("GITHUB_SHA")
-        .unwrap_or_else(|_| "unknown".to_string());
-    let github_run_id = env::var("GITHUB_RUN_ID")
-        .unwrap_or_else(|_| "unknown".to_string());
+    let github_sha = env::var("GITHUB_SHA").unwrap_or_else(|_| "unknown".to_string());
+    let github_run_id = env::var("GITHUB_RUN_ID").unwrap_or_else(|_| "unknown".to_string());
 
     // Cargo.toml のバージョン情報を取得
     let version = env::var("CARGO_PKG_VERSION").unwrap();
@@ -51,8 +49,7 @@ impl BuildInfo {{
         github_sha, github_run_id, version
     );
 
-    std::fs::write(&build_info_path, code)
-        .expect("Failed to write build_info.rs");
+    std::fs::write(&build_info_path, code).expect("Failed to write build_info.rs");
 
     // ビルドスクリプトの再実行トリガー
     println!("cargo:rerun-if-changed=build.rs");

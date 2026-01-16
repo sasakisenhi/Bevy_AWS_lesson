@@ -17,7 +17,6 @@ pub fn apply_command(player: &mut Player, command: Command) {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -44,5 +43,4 @@ mod tests {
     }
 
     //apply_commands_to_playerのテスト
-    
 }
