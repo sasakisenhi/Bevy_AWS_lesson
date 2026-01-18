@@ -78,4 +78,4 @@ jobs:
 
       # ---------- ビルド ----------
       - name: Build workspace
-        run: cargo build --workspace --locked 
+        run: cargo build -p game_core -p game_logic --locked

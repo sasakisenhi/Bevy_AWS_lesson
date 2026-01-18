@@ -1,5 +1,4 @@
-//! Runtime モジュール
-//! ゲームランタイムの実装とビルド情報を提供する
+//! runtime ライブラリ
+//! 実行体の由来を宣言する BuildManifest を提供
 
-// ビルド時に生成されたビルド情報を埋め込む
-include!(concat!(env!("OUT_DIR"), "/build_info.rs"));
+include!(concat!(env!("OUT_DIR"), "/build_manifest.rs"));

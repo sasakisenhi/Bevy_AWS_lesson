@@ -3,16 +3,18 @@ use bevy::prelude::*;
 
 use game_core::Player;
 use game_logic::{Command, apply_command};
-use game_runtime::BuildInfo;
+use game_runtime::BuildManifest; // ← ここを差し替え
 
 fn main() {
-    // ビルド情報を表示
-    let build_info = BuildInfo::get();
-    println!("=== Build Info ===");
-    println!("SHA: {}", build_info.git_sha);
-    println!("Run ID: {}", build_info.run_id);
-    println!("Version: {}", build_info.version);
-    println!("==================");
+    // 実行体の自己同一性を印字
+    let manifest = BuildManifest::get();
+    println!("=== Build Manifest ===");
+    println!("core.git_sha     : {}", manifest.core_git_sha);
+    println!("logic.git_sha    : {}", manifest.logic_git_sha);
+    println!("runtime.git_sha  : {}", manifest.runtime_git_sha);
+    println!("ci_run_id        : {}", manifest.ci_run_id);
+    println!("build_timestamp  : {}", manifest.build_timestamp);
+    println!("======================");
 
     App::new()
         .add_plugins(DefaultPlugins)
