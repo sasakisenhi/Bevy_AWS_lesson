@@ -101,12 +101,10 @@ fn get_git_sha() -> String {
         .current_dir(manifest_dir)
         .output()
     {
-        Ok(output) if output.status.success() => {
-            String::from_utf8(output.stdout)
-                .ok()
-                .map(|s| s.trim().to_string())
-                .unwrap_or_else(|| "unknown".to_string())
-        }
+        Ok(output) if output.status.success() => String::from_utf8(output.stdout)
+            .ok()
+            .map(|s| s.trim().to_string())
+            .unwrap_or_else(|| "unknown".to_string()),
         _ => "unknown".to_string(),
     }
 }
