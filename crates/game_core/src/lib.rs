@@ -1,3 +1,9 @@
+//! game_core ライブラリ
+//! ゲームロジックのコア層
+
+// ビルド時に生成されたビルド情報を埋め込む
+include!(concat!(env!("OUT_DIR"), "/build_core_info.rs"));
+
 #[derive(Debug, Clone, Copy)]
 pub struct Vec2 {
     pub x: f32,
