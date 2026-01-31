@@ -41,6 +41,4 @@ mod tests {
         assert_eq!(player.position.x, -1.0);
         assert_eq!(player.position.y, 0.0);
     }
-
-    //apply_commands_to_playerのテスト
 }
