@@ -2357,6 +2357,7 @@ name = "game_runtime"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "build_support",
  "game_core",
  "game_logic",
 ]

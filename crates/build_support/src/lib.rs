@@ -80,3 +80,69 @@ impl BuildInfo {{
         version = version
     )
 }
+
+pub fn get_git_sha_with_fallback(primary_var: &str) -> String {
+    env::var(primary_var)
+        .or_else(|_| env::var("GITHUB_SHA"))
+        .unwrap_or_else(|_| get_git_sha())
+}
+
+pub fn generate_build_manifest_code(
+    core_sha: &str,
+    logic_sha: &str,
+    runtime_sha: &str,
+    run_id: &str,
+    ts_secs: u64,
+) -> String {
+    let ts = ts_secs.to_string();
+    format!(
+        r##"
+/// 実行体の由来情報（責任の一点集約）
+#[derive(Debug, Clone)]
+pub struct BuildManifest {{
+    /// game_core の Git SHA
+    pub core_git_sha: &'static str,
+    /// game_logic の Git SHA
+    pub logic_git_sha: &'static str,
+    /// game_runtime（自身）の Git SHA
+    pub runtime_git_sha: &'static str,
+    /// GitHub Actions Run ID（CI の同一性）
+    pub ci_run_id: &'static str,
+    /// ビルド時刻（UNIX秒）
+    pub build_timestamp: &'static str,
+}}
+
+impl BuildManifest {{
+    /// マニフェストを取得
+    pub fn get() -> Self {{
+        BuildManifest {{
+            core_git_sha: "{core}",
+            logic_git_sha: "{logic}",
+            runtime_git_sha: "{runtime}",
+            ci_run_id: "{run_id}",
+            build_timestamp: "{ts}",
+        }}
+    }}
+}}
+
+impl std::fmt::Display for BuildManifest {{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{
+        write!(
+            f,
+            "BuildManifest {{{{ core_git_sha: {{}}, logic_git_sha: {{}}, runtime_git_sha: {{}}, ci_run_id: {{}}, build_timestamp: {{}} }}}}",
+            self.core_git_sha,
+            self.logic_git_sha,
+            self.runtime_git_sha,
+            self.ci_run_id,
+            self.build_timestamp
+        )
+    }}
+}}
+"##,
+        core = core_sha,
+        logic = logic_sha,
+        runtime = runtime_sha,
+        run_id = run_id,
+        ts = ts
+    )
+}
