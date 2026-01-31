@@ -1,4 +1,3 @@
-
 [profile.dev]
 opt-level = 0
 debug = true
@@ -8,6 +7,7 @@ incremental = true
 members = [
     "crates/game_core",
     "crates/game_logic",
-    "crates/game_runtime"
-    ]
+    "crates/game_runtime",
+    "crates/build_support",
+]
 resolver = "3"

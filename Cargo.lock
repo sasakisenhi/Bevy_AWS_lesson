@@ -1611,6 +1611,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "build_support"
+version = "0.1.0"
+
+[[package]]
 name = "bumpalo"
 version = "3.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2335,12 +2339,16 @@ dependencies = [
 [[package]]
 name = "game_core"
 version = "0.1.0"
+dependencies = [
+ "build_support",
+]
 
 [[package]]
 name = "game_logic"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "build_support",
  "game_core",
 ]
 

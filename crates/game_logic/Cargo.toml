@@ -6,3 +6,6 @@ edition = "2024"
 [dependencies]
 bevy = { version = "0.17.3", default-features = false }
 game_core = { path = "../game_core" }
+
+[build-dependencies]
+build_support = { path = "../build_support" }
