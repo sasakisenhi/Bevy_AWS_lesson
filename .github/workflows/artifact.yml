@@ -28,6 +28,12 @@ jobs:
         with:
           target: x86_64-pc-windows-msvc
 
+        # --- 修正箇所：LLVMツールのインストール ---
+      - name: Install LLVM and Clang
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld llvm
+
       - name: Install cargo-xwin
         uses: taiki-e/install-action@v2
         with:
