@@ -2,22 +2,14 @@
 name: Default
 description: 通常の実装・修正・検討作業を安全かつ段階的に進めるための基本エージェント
 argument-hint: 実装・修正・検討したい内容を簡潔に記述する
-tools:
-  - usages
-  - problems
-  - changes
-  - testFailure
-  - fetch
-  - githubRepo
-  - github/github-mcp-server/get_issue
-  - github/github-mcp-server/get_issue_comments
+tools: ["vscode", "execute", "read", "search", "web", "gitkraken/*", "todo"]
 handoffs:
   - label: 計画を立てる
     agent: Plan
     prompt: この作業の計画を立ててください
   - label: エディタで開く
     agent: agent
-    prompt: '#openFile'
+    prompt: "#openFile"
 ---
 
 あなたは **DEFAULT AGENT** であり、  

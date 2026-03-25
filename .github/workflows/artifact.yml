@@ -1,0 +1,128 @@
+# --- S3に成果物をアップロードするワークフロー ---
+name: s3-artifact-freeze
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  freeze-artifacts-to-s3:
+    name: Freeze artifacts to S3
+    runs-on: ubuntu-latest
+    continue-on-error: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          target: x86_64-pc-windows-msvc
+
+      - name: Install cargo-xwin
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-xwin
+
+      # クロスコンパイル用のターゲットを追加
+      - name: Add Windows target
+        run: rustup target add x86_64-pc-windows-msvc
+
+      # xwinのキャッシュ
+      - name: Cache xwin
+        uses: actions/cache@v4
+        with:
+          path: ~/.xwin
+          key: ${{ runner.os }}-xwin-v1
+
+      # --- 意図的にやらないこと ---
+      # fmt / clippy / test は実施しない（ci.yml の責務）
+      # deploy / release は実施しない（将来の workflow の責務）
+      # PR 判定はしない（gate の仕事）
+      # feature 自動切替はしない（再現性を壊す）
+      # この workflow は判断しない。作って、残すだけ。
+
+      - name: Collect metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUILD_TS=$(date -u +"%Y%m%dT%H%M%SZ")
+          SHA="${GITHUB_SHA}"
+          RUSTC_VERSION=$(rustc -Vv | tr '\n' ';' | sed 's/;*$//')
+          CARGO_LOCK_HASH=$(sha256sum Cargo.lock | awk '{print $1}')
+          CRATE_NAMES=$(python - <<'PY'
+          import json, subprocess
+          meta = subprocess.check_output(["cargo","metadata","--no-deps","--format-version","1"], text=True)
+          data = json.loads(meta)
+          names = sorted({p["name"] for p in data["packages"]})
+          print(",".join(names))
+          PY
+          )
+
+          echo "build_ts=$BUILD_TS" >> "$GITHUB_OUTPUT"
+          echo "crate_names=$CRATE_NAMES" >> "$GITHUB_OUTPUT"
+          echo "cargo_lock_hash=$CARGO_LOCK_HASH" >> "$GITHUB_OUTPUT"
+          echo "rustc_version=$RUSTC_VERSION" >> "$GITHUB_OUTPUT"
+
+          mkdir -p artifact_bundle
+          cat > artifact_bundle/metadata.json <<EOF
+          {
+            "git_sha": "$SHA",
+            "build_timestamp_utc": "$BUILD_TS",
+            "rustc_version": "$RUSTC_VERSION",
+            "cargo_lock_hash": "$CARGO_LOCK_HASH",
+            "crate_names": "$CRATE_NAMES"
+          }
+          EOF
+          cp Cargo.lock artifact_bundle/Cargo.lock
+
+      # Releaseビルドの実行
+      - name: Build game (Release) --locked
+        run: cargo xwin build --release --target x86_64-pc-windows-msvc --locked
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Bundle artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp target/x86_64-pc-windows-msvc/release/game_runtime.exe dist/game.exe
+          cp artifact_bundle/metadata.json dist/
+          cp artifact_bundle/Cargo.lock dist/
+
+      - name: Upload to S3 (Freeze)
+        shell: bash
+        env:
+          S3_BUCKET: ${{ vars.S3_BUCKET }}
+        run: |
+          set -euo pipefail
+          DEST="s3://${S3_BUCKET}/artifacts/${GITHUB_SHA}/"
+          aws s3 sync dist/ "$DEST"
+          printf '%s\n' "complete:${GITHUB_SHA}:${{ steps.meta.outputs.build_ts }}" | aws s3 cp - "${DEST}_COMPLETE"
+
+        # ポインタの更新
+      - name: Staging update
+        if: success()
+        run: |
+          echo "${{ github.sha }}" | aws s3 cp - "s3://${{ vars.S3_BUCKET }}/tags/staging_latest.txt"
+
+      - name: Cleanup
+        if: always()
+        shell: bash
+        run: |
+          rm -rf artifact_bundle dist
