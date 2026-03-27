@@ -18,11 +18,6 @@ jobs:
     continue-on-error: false
 
     steps:
-      - name: Debug ARN length
-        run: |
-          STR="${{ secrets.AWS_ROLE_ARN }}"
-          echo "ARN Length is ${#STR}"
-
       - name: Checkout
         uses: actions/checkout@v4
         with:
