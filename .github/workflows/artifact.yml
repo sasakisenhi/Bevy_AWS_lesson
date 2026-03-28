@@ -47,7 +47,7 @@ jobs:
       - name: xwin cache
         uses: actions/cache@v4
         with:
-          path: ${{ env.XWIN_DATA_DIR }}
+          path: /home/runner/.xwin
           key: ${{ runner.os }}-xwin-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-xwin-
