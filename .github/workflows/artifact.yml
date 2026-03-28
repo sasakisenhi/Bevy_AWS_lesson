@@ -16,6 +16,8 @@ jobs:
     name: Freeze artifacts to S3
     runs-on: ubuntu-latest
     continue-on-error: false
+    env:
+      XWIN_CACHE_DIR: ~/.cache/xwin
 
     steps:
       - name: Checkout
@@ -43,11 +45,14 @@ jobs:
       - name: Add Windows target
         run: rustup target add x86_64-pc-windows-msvc
 
+      - name: Prepare xwin cache directory
+        run: mkdir -p "$XWIN_CACHE_DIR"
+
       # xwinのキャッシュ
       - name: xwin cache
         uses: actions/cache@v4
         with:
-          path: /home/runner/.xwin
+          path: ${{ env.XWIN_CACHE_DIR }}
           key: ${{ runner.os }}-xwin-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-xwin-
@@ -128,6 +133,15 @@ jobs:
         if: success()
         run: |
           echo "${{ github.sha }}" | aws s3 cp - "s3://${{ vars.S3_BUCKET }}/tags/staging_latest.txt"
+
+      - name: Backstop xwin cache path
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$XWIN_CACHE_DIR"
+          echo "xwin cache path: $XWIN_CACHE_DIR"
+          du -sh "$XWIN_CACHE_DIR" || true
 
       - name: Cleanup
         if: always()
