@@ -47,15 +47,10 @@ jobs:
       - name: xwin cache
         uses: actions/cache@v4
         with:
-          # 固定したパスを指定
-          path: /home/runner/.xwin
+          path: ${{ env.XWIN_DATA_DIR }}
           key: ${{ runner.os }}-xwin-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-xwin-
-
-      - name: Install xwin
-        # env で指定した XWIN_DATA_DIR に展開されるようになります
-        run: cargo xwin setup --accept-license
 
       # --- 意図的にやらないこと ---
       # fmt / clippy / test は実施しない（ci.yml の責務）
