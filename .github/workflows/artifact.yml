@@ -43,12 +43,23 @@ jobs:
       - name: Add Windows target
         run: rustup target add x86_64-pc-windows-msvc
 
+      - name: Rust Cache
+        uses: swatinem/rust-cache@v2
+
       # xwinのキャッシュ
-      - name: Cache xwin
+      - name: xwin cache
         uses: actions/cache@v4
         with:
-          path: ~/.xwin
-          key: ${{ runner.os }}-xwin-v1
+          # ホームディレクトリを明示的に指定
+          path: /home/runner/.xwin
+          # キーを動的にして、環境が変わっても追従するようにする
+          key: ${{ runner.os }}-xwin-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-xwin-
+
+      - name: Install xwin
+        # キャッシュがあれば、このステップは 1秒で終わります
+        run: cargo xwin setup --accept-license
 
       # --- 意図的にやらないこと ---
       # fmt / clippy / test は実施しない（ci.yml の責務）
