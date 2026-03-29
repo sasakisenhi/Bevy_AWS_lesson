@@ -66,6 +66,11 @@ jobs:
           key: ${{ runner.os }}-xwin-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-xwin-
+      # Rustのキャッシュ
+      - name: Rust Cache
+        uses: swatinem/rust-cache@v2
+        with:
+          key: x86_64-pc-windows-msvc
 
       # --- 意図的にやらないこと ---
       # fmt / clippy / test は実施しない（ci.yml の責務）
