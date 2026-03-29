@@ -18,6 +18,9 @@ jobs:
     continue-on-error: false
     env:
       XWIN_CACHE_DIR: /home/runner/.cache/xwin
+      CARGO_TERM_COLOR: always
+      CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER: clang-cl
+      CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS: -C link-arg=/fuse-ld=lld
 
     steps:
       - name: Checkout
@@ -30,7 +33,7 @@ jobs:
         with:
           target: x86_64-pc-windows-msvc
 
-        # --- 修正箇所：LLVMツールのインストール ---
+        # ---：LLVMツールのインストール ---
       - name: Install LLVM and Clang
         run: |
           sudo apt-get update
