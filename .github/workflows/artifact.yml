@@ -48,6 +48,19 @@ jobs:
       - name: Prepare xwin cache directory
         run: mkdir -p "$XWIN_CACHE_DIR"
 
+      - name: Debug xwin cache path (before restore)
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPANDED_XWIN_CACHE_DIR="${XWIN_CACHE_DIR/#\~/$HOME}"
+          echo "pwd=$(pwd)"
+          echo "HOME=$HOME"
+          echo "XWIN_CACHE_DIR(raw)=$XWIN_CACHE_DIR"
+          echo "XWIN_CACHE_DIR(expanded)=$EXPANDED_XWIN_CACHE_DIR"
+          ls -ald "$XWIN_CACHE_DIR" || true
+          ls -ald "$EXPANDED_XWIN_CACHE_DIR" || true
+          ls -ald "$GITHUB_WORKSPACE/~/.cache/xwin" || true
+
       # xwinのキャッシュ
       - name: xwin cache
         uses: actions/cache@v4
@@ -102,6 +115,18 @@ jobs:
       # Releaseビルドの実行
       - name: Build game (Release) --locked
         run: cargo xwin build --release --target x86_64-pc-windows-msvc --locked
+
+      - name: Debug xwin cache path (after build)
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPANDED_XWIN_CACHE_DIR="${XWIN_CACHE_DIR/#\~/$HOME}"
+          echo "XWIN_CACHE_DIR(raw)=$XWIN_CACHE_DIR"
+          echo "XWIN_CACHE_DIR(expanded)=$EXPANDED_XWIN_CACHE_DIR"
+          du -sh "$XWIN_CACHE_DIR" || true
+          du -sh "$EXPANDED_XWIN_CACHE_DIR" || true
+          find "$GITHUB_WORKSPACE" -maxdepth 4 -type d -path "*/~/.cache/xwin" -print || true
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
