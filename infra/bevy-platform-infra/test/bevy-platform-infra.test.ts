@@ -31,7 +31,9 @@ describe('BevyPlatformInfraStack', () => {
 								'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
 							},
 							StringLike: {
-								'token.actions.githubusercontent.com:sub': 'repo:octo-org/bevy-platform-infra:ref:refs/heads/main',
+								'token.actions.githubusercontent.com:sub': [
+									'repo:octo-org/bevy-platform-infra:ref:refs/heads/main',
+								],
 							},
 						},
 					}),
@@ -40,5 +42,39 @@ describe('BevyPlatformInfraStack', () => {
 		});
 
 		template.hasOutput('GithubActionsRoleArn', {});
+	});
+
+	test('allows both main/master by default when githubBranch is omitted', () => {
+		const app = new cdk.App({
+			context: {
+				env: 'test',
+				githubOwner: 'octo-org',
+				githubRepo: 'bevy-platform-infra',
+			},
+		});
+
+		const stack = new BevyPlatformInfraStack(app, 'MyDefaultBranchStack', {
+			env: { account: '123456789012', region: 'ap-northeast-1' },
+		});
+
+		const template = Template.fromStack(stack);
+
+		template.hasResourceProperties('AWS::IAM::Role', {
+			AssumeRolePolicyDocument: {
+				Statement: Match.arrayWith([
+					Match.objectLike({
+						Action: 'sts:AssumeRoleWithWebIdentity',
+						Condition: {
+							StringLike: {
+								'token.actions.githubusercontent.com:sub': Match.arrayWith([
+									'repo:octo-org/bevy-platform-infra:ref:refs/heads/main',
+									'repo:octo-org/bevy-platform-infra:ref:refs/heads/master',
+								]),
+							},
+						},
+					}),
+				]),
+			},
+		});
 	});
 });

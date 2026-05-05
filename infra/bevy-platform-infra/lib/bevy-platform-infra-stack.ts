@@ -14,7 +14,7 @@ const GITHUB_OIDC_CONFIG = {
   PROVIDER_URL: 'https://token.actions.githubusercontent.com',
   CLIENT_ID: 'sts.amazonaws.com',
   THUMBPRINT: '6938fd4d98bab03faadb97b34396831e3780a188',
-  DEFAULT_BRANCH: 'main',
+  DEFAULT_BRANCHES: ['main', 'master'],
   PLACEHOLDER_OWNER: '<github-owner>',
   PLACEHOLDER_REPO: '<github-repo>',
 } as const;
@@ -28,12 +28,17 @@ export class BevyPlatformInfraStack extends cdk.Stack {
     // GitHub OIDCの設定をコンテキストから取得（プレースホルダーも用意）
     const githubOwner = this.node.tryGetContext('githubOwner') || GITHUB_OIDC_CONFIG.PLACEHOLDER_OWNER;
     const githubRepo = this.node.tryGetContext('githubRepo') || GITHUB_OIDC_CONFIG.PLACEHOLDER_REPO;
-    const githubBranch = this.node.tryGetContext('githubBranch') || GITHUB_OIDC_CONFIG.DEFAULT_BRANCH;
+    const githubBranch = this.node.tryGetContext('githubBranch');
+    const githubBranches = githubBranch
+      ? [String(githubBranch)]
+      : GITHUB_OIDC_CONFIG.DEFAULT_BRANCHES;
     
     // 既存のARNが明示的に指定されている場合、またはAWSアカウントに既にプロバイダーが存在すると想定される場合のARN
     const existingProviderArn = `arn:aws:iam::${this.account}:oidc-provider/token.actions.githubusercontent.com`;
     
-    const githubSub = `repo:${githubOwner}/${githubRepo}:ref:refs/heads/${githubBranch}`;
+    const githubSubs = githubBranches.map(
+      (branch) => `repo:${githubOwner}/${githubRepo}:ref:refs/heads/${branch}`,
+    );
 
     // GitHub OIDCの設定がプレースホルダーのままの場合は警告を出す
     if (
@@ -100,7 +105,7 @@ export class BevyPlatformInfraStack extends cdk.Stack {
             'token.actions.githubusercontent.com:aud': GITHUB_OIDC_CONFIG.CLIENT_ID,
           },
           StringLike: {
-            'token.actions.githubusercontent.com:sub': githubSub,
+            'token.actions.githubusercontent.com:sub': githubSubs,
           },
         },
       ),
