@@ -29,6 +29,56 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Preflight debug for AWS/OIDC inputs
+        id: preflight_aws
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "== Preflight: AWS/OIDC inputs =="
+          echo "branch=${GITHUB_REF:-unknown}"
+
+          if [[ -z "${AWS_REGION:-}" ]]; then
+            echo "::error::AWS_REGION is empty. Set repository variable AWS_REGION."
+            exit 1
+          fi
+          if [[ -z "${S3_BUCKET:-}" ]]; then
+            echo "::error::S3_BUCKET is empty. Set repository variable S3_BUCKET."
+            exit 1
+          fi
+
+          RAW_ARN="${AWS_ROLE_ARN:-}"
+          if [[ -z "$RAW_ARN" ]]; then
+            echo "::error::AWS_ROLE_ARN is empty. Set repository secret AWS_ROLE_ARN."
+            exit 1
+          fi
+
+          ROLE_ARN="$(printf '%s' "$RAW_ARN" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+
+          # Secretsが引用符付きで保存されていても吸収する
+          if [[ "$ROLE_ARN" =~ ^\".*\"$ ]]; then
+            ROLE_ARN="${ROLE_ARN:1:${#ROLE_ARN}-2}"
+          elif [[ "$ROLE_ARN" =~ ^\'.*\'$ ]]; then
+            ROLE_ARN="${ROLE_ARN:1:${#ROLE_ARN}-2}"
+          fi
+
+          if [[ ! "$ROLE_ARN" =~ ^arn:aws(-[a-z]+)?:iam::[0-9]{12}:role\/[A-Za-z0-9+=,.@_\/-]+$ ]]; then
+            echo "::error::AWS_ROLE_ARN format is invalid."
+            echo "::error::Expected: arn:aws:iam::<12-digit-account-id>:role/<role-name-or-path>"
+            exit 1
+          fi
+
+          # 秘密情報は伏せて診断情報のみ出す
+          ACCOUNT_ID="$(printf '%s' "$ROLE_ARN" | sed -E 's#^arn:aws(-[a-z]+)?:iam::([0-9]{12}):role/.+#\2#')"
+          ROLE_PATH="$(printf '%s' "$ROLE_ARN" | sed -E 's#^arn:aws(-[a-z]+)?:iam::[0-9]{12}:role/##')"
+          echo "AWS_REGION=$AWS_REGION"
+          echo "S3_BUCKET=$S3_BUCKET"
+          echo "Role account id=$ACCOUNT_ID"
+          echo "Role path/name=$ROLE_PATH"
+
+          echo "role_arn=$ROLE_ARN" >> "$GITHUB_OUTPUT"
+          echo "Preflight check passed."
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -131,33 +181,10 @@ jobs:
           du -sh "$XWIN_CACHE_DIR" || true
           find "$GITHUB_WORKSPACE" -maxdepth 4 -type d -path "*/~/.cache/xwin" -print || true
 
-      - name: Validate and normalize AWS role ARN
-        id: validate_arn
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          RAW_ARN="${AWS_ROLE_ARN:-}"
-          if [[ -z "$RAW_ARN" ]]; then
-            echo "::error::AWS_ROLE_ARN is empty. Set repository secret AWS_ROLE_ARN to a valid IAM role ARN."
-            exit 1
-          fi
-
-          ROLE_ARN="$(printf '%s' "$RAW_ARN" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-
-          if [[ ! "$ROLE_ARN" =~ ^arn:aws(-[a-z]+)?:iam::[0-9]{12}:role\/[A-Za-z0-9+=,.@_\/-]+$ ]]; then
-            echo "::error::AWS_ROLE_ARN is invalid: '$ROLE_ARN'"
-            echo "::error::Expected format: arn:aws:iam::<12-digit-account-id>:role/<role-name-or-path>"
-            exit 1
-          fi
-
-          echo "role_arn=$ROLE_ARN" >> "$GITHUB_OUTPUT"
-          echo "AWS_ROLE_ARN validated successfully."
-
       - name: Assume AWS IAM Role via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ steps.validate_arn.outputs.role_arn }}
+          role-to-assume: ${{ steps.preflight_aws.outputs.role_arn }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Test S3 Access
