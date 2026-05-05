@@ -2,3 +2,19 @@
 target/
 .env
 .env.local
+
+# Node.js / npm
+node_modules/
+package-lock.json
+npm-debug.log*
+.npm
+
+# CDK
+cdk.out/
+*.d.ts.map
+.cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
