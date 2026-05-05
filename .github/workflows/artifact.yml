@@ -4,7 +4,7 @@ name: s3-artifact-freeze
 on:
   push:
     branches:
-      - master
+      - main
   workflow_dispatch:
 
 permissions:
@@ -19,8 +19,9 @@ jobs:
     env:
       XWIN_CACHE_DIR: /home/runner/.cache/xwin
       CARGO_TERM_COLOR: always
-      CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER: clang-cl
-      CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS: -C link-arg=/fuse-ld=lld
+      AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      S3_BUCKET: ${{ vars.S3_BUCKET }}
 
     steps:
       - name: Checkout
@@ -130,11 +131,17 @@ jobs:
           du -sh "$XWIN_CACHE_DIR" || true
           find "$GITHUB_WORKSPACE" -maxdepth 4 -type d -path "*/~/.cache/xwin" -print || true
 
-      - name: Configure AWS credentials
+      - name: Assume AWS IAM Role via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Test S3 Access
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws s3 ls
 
       - name: Bundle artifacts
         shell: bash
@@ -147,8 +154,6 @@ jobs:
 
       - name: Upload to S3 (Freeze)
         shell: bash
-        env:
-          S3_BUCKET: ${{ vars.S3_BUCKET }}
         run: |
           set -euo pipefail
           DEST="s3://${S3_BUCKET}/artifacts/${GITHUB_SHA}/"
@@ -158,8 +163,10 @@ jobs:
         # ポインタの更新
       - name: Staging update
         if: success()
+        shell: bash
         run: |
-          echo "${{ github.sha }}" | aws s3 cp - "s3://${{ vars.S3_BUCKET }}/tags/staging_latest.txt"
+          set -euo pipefail
+          echo "${{ github.sha }}" | aws s3 cp - "s3://${S3_BUCKET}/tags/staging_latest.txt"
 
       - name: Backstop xwin cache path
         if: always()
