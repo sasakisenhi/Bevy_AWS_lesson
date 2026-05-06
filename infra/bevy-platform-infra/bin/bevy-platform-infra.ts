@@ -31,7 +31,7 @@ const secondaryStack = new SecondaryBucketStack(app, 'BevyPlatformInfraSecondary
 const secondaryBucketArn = `arn:aws:s3:::${secondaryStack.bucketName}`;
 
 // プライマリリージョンにアーティファクト用のS3バケットとGitHub OIDCロールを作成するスタック
-new BevyPlatformInfraStack(app, 'BevyPlatformInfraStack', {
+const primaryStack = new BevyPlatformInfraStack(app, 'BevyPlatformInfraStack', {
   env: {
     account,
     region: primaryRegion,
@@ -39,3 +39,6 @@ new BevyPlatformInfraStack(app, 'BevyPlatformInfraStack', {
   description: 'Primary region stack for artifact storage and GitHub OIDC role',
   secondaryBucketArn,
 });
+
+// デプロイ順序を保証（セカンダリ作成完了後にプライマリを更新）
+primaryStack.addDependency(secondaryStack);
