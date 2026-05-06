@@ -13,10 +13,8 @@ if (!account) {
 
 const primaryRegion = 'ap-northeast-1';
 const secondaryRegion = 'us-east-1';
-const secondaryBucketName = `bevy-artifacts-${envName}-secondary-${account}`;
-const secondaryBucketArn = `arn:aws:s3:::${secondaryBucketName}`;
 
-new SecondaryBucketStack(app, 'BevyPlatformInfraSecondaryBucketStack', {
+const secondaryStack = new SecondaryBucketStack(app, 'BevyPlatformInfraSecondaryBucketStack', {
   env: {
     account,
     region: secondaryRegion,
@@ -24,6 +22,8 @@ new SecondaryBucketStack(app, 'BevyPlatformInfraSecondaryBucketStack', {
   description: 'Secondary region bucket stack for artifact cross-region replication',
   envName,
 });
+
+const secondaryBucketArn = `arn:aws:s3:::${secondaryStack.bucketName}`;
 
 new BevyPlatformInfraStack(app, 'BevyPlatformInfraStack', {
   env: {

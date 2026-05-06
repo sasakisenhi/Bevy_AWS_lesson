@@ -13,6 +13,8 @@ interface SecondaryBucketStackProps extends cdk.StackProps {
 }
 
 export class SecondaryBucketStack extends cdk.Stack {
+  public readonly bucketName: string;
+
   constructor(scope: Construct, id: string, props: SecondaryBucketStackProps) {
     super(scope, id, props);
 
@@ -32,6 +34,8 @@ export class SecondaryBucketStack extends cdk.Stack {
         },
       ],
     });
+
+    this.bucketName = secondaryBucket.bucketName;
 
     new cdk.CfnOutput(this, 'SecondaryBucketNameExport', {
       value: secondaryBucket.bucketName,

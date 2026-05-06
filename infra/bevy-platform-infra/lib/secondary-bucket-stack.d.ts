@@ -6,6 +6,7 @@ interface SecondaryBucketStackProps extends cdk.StackProps {
 }
 // CDKスタックの定義
 export declare class SecondaryBucketStack extends cdk.Stack {
+    readonly bucketName: string;
     constructor(scope: Construct, id: string, props: SecondaryBucketStackProps);
 }
 export {};
