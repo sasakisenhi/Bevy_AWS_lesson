@@ -118,11 +118,12 @@ export class BevyPlatformInfraStack extends cdk.Stack {
 
     artifactBucket.grantReadWrite(githubRole);
 
+    // S3クロスリージョンレプリケーションの設定
     const replicationRole = new iam.Role(this, 'S3ReplicationRole', {
       assumedBy: new iam.ServicePrincipal('s3.amazonaws.com'),
       description: 'Role used by S3 to replicate objects to the secondary region bucket',
     });
-
+    // レプリケーションに必要な権限をロールに付与
     replicationRole.addToPolicy(
       new iam.PolicyStatement({
         actions: [
@@ -132,7 +133,7 @@ export class BevyPlatformInfraStack extends cdk.Stack {
         resources: [artifactBucket.bucketArn],
       }),
     );
-
+    // オブジェクトのレプリケーションに必要な権限をロールに付与
     replicationRole.addToPolicy(
       new iam.PolicyStatement({
         actions: [
@@ -143,7 +144,7 @@ export class BevyPlatformInfraStack extends cdk.Stack {
         resources: [`${artifactBucket.bucketArn}/*`],
       }),
     );
-
+    // レプリケーション先のバケットに対する権限をロールに付与
     replicationRole.addToPolicy(
       new iam.PolicyStatement({
         actions: [
@@ -154,7 +155,7 @@ export class BevyPlatformInfraStack extends cdk.Stack {
         resources: [`${props.secondaryBucketArn}/*`],
       }),
     );
-
+    // S3クロスリージョンレプリケーションの設定をバケットに追加
     const cfnBucket = artifactBucket.node.defaultChild as s3.CfnBucket;
     cfnBucket.replicationConfiguration = {
       role: replicationRole.roleArn,
@@ -175,9 +176,9 @@ export class BevyPlatformInfraStack extends cdk.Stack {
         },
       ],
     };
-
+    // レプリケーション設定の依存関係を明示的に追加（CDKが自動的に処理することもありますが、明示的にすることで確実に順序が保証されます）
     cfnBucket.addDependency(replicationRole.node.defaultChild as iam.CfnRole);
-
+    // バケット名を出力
     new cdk.CfnOutput(this, 'BucketNameExport', {
       value: artifactBucket.bucketName,
     });
@@ -186,7 +187,7 @@ export class BevyPlatformInfraStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'GithubActionsRoleArn', {
       value: githubRole.roleArn,
     });
-
+    // レプリケーション先バケットのARNを出力
     new cdk.CfnOutput(this, 'ReplicationDestinationBucketArn', {
       value: props.secondaryBucketArn,
     });
