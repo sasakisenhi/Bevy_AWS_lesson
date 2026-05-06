@@ -15,6 +15,7 @@ describe('BevyPlatformInfraStack', () => {
 
 		const stack = new BevyPlatformInfraStack(app, 'MyTestStack', {
 			env: { account: '123456789012', region: 'ap-northeast-1' },
+			secondaryBucketArn: 'arn:aws:s3:::bevy-artifacts-test-secondary-123456789012',
 		});
 
 		const template = Template.fromStack(stack);
@@ -55,6 +56,7 @@ describe('BevyPlatformInfraStack', () => {
 
 		const stack = new BevyPlatformInfraStack(app, 'MyDefaultBranchStack', {
 			env: { account: '123456789012', region: 'ap-northeast-1' },
+			secondaryBucketArn: 'arn:aws:s3:::bevy-artifacts-test-secondary-123456789012',
 		});
 
 		const template = Template.fromStack(stack);

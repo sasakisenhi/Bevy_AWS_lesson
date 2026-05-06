@@ -9,6 +9,10 @@ const STORAGE_CONFIG = {
   HISTORY_RETENTION_DAYS: 7,
   BUCKET_PREFIX: 'bevy-artifacts',
 } as const;
+
+interface BevyPlatformInfraStackProps extends cdk.StackProps {
+  secondaryBucketArn: string;
+}
 //GitHub OIDCの設定も定数オブジェクトにまとめる
 const GITHUB_OIDC_CONFIG = {
   PROVIDER_URL: 'https://token.actions.githubusercontent.com',
@@ -20,7 +24,7 @@ const GITHUB_OIDC_CONFIG = {
 } as const;
 
 export class BevyPlatformInfraStack extends cdk.Stack {
-  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+  constructor(scope: Construct, id: string, props: BevyPlatformInfraStackProps) {
     super(scope, id, props);
 
     // 実行時に -c env=prod と渡せる
@@ -114,6 +118,66 @@ export class BevyPlatformInfraStack extends cdk.Stack {
 
     artifactBucket.grantReadWrite(githubRole);
 
+    const replicationRole = new iam.Role(this, 'S3ReplicationRole', {
+      assumedBy: new iam.ServicePrincipal('s3.amazonaws.com'),
+      description: 'Role used by S3 to replicate objects to the secondary region bucket',
+    });
+
+    replicationRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: [
+          's3:GetReplicationConfiguration',
+          's3:ListBucket',
+        ],
+        resources: [artifactBucket.bucketArn],
+      }),
+    );
+
+    replicationRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: [
+          's3:GetObjectVersionForReplication',
+          's3:GetObjectVersionAcl',
+          's3:GetObjectVersionTagging',
+        ],
+        resources: [`${artifactBucket.bucketArn}/*`],
+      }),
+    );
+
+    replicationRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: [
+          's3:ReplicateObject',
+          's3:ReplicateDelete',
+          's3:ReplicateTags',
+        ],
+        resources: [`${props.secondaryBucketArn}/*`],
+      }),
+    );
+
+    const cfnBucket = artifactBucket.node.defaultChild as s3.CfnBucket;
+    cfnBucket.replicationConfiguration = {
+      role: replicationRole.roleArn,
+      rules: [
+        {
+          id: 'CrossRegionReplicationRule',
+          status: 'Enabled',
+          priority: 1,
+          filter: {
+            prefix: '',
+          },
+          deleteMarkerReplication: {
+            status: 'Enabled',
+          },
+          destination: {
+            bucket: props.secondaryBucketArn,
+          },
+        },
+      ],
+    };
+
+    cfnBucket.addDependency(replicationRole.node.defaultChild as iam.CfnRole);
+
     new cdk.CfnOutput(this, 'BucketNameExport', {
       value: artifactBucket.bucketName,
     });
@@ -121,6 +185,10 @@ export class BevyPlatformInfraStack extends cdk.Stack {
 
     new cdk.CfnOutput(this, 'GithubActionsRoleArn', {
       value: githubRole.roleArn,
+    });
+
+    new cdk.CfnOutput(this, 'ReplicationDestinationBucketArn', {
+      value: props.secondaryBucketArn,
     });
   }
 }
