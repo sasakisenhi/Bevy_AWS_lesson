@@ -190,9 +190,11 @@ jobs:
 
       - name: Test S3 Access
         shell: bash
+        env:
+          S3_BUCKET: ${{ vars.S3_BUCKET }}
         run: |
           set -euo pipefail
-          aws s3 ls
+          aws s3 ls "s3://${S3_BUCKET}/"
 
       - name: Bundle artifacts
         shell: bash
