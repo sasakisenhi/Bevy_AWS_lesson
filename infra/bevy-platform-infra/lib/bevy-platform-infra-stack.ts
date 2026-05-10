@@ -159,17 +159,24 @@ export class BevyPlatformInfraStack extends cdk.Stack {
     const cfnBucket = artifactBucket.node.defaultChild as s3.CfnBucket;
     cfnBucket.replicationConfiguration = {
       role: replicationRole.roleArn,
+      // 定数を使用してレプリケーションルールを定義
       rules: [
         {
+          // ルールIDは任意の文字列で、複数ルールがある場合は一意である必要があります
           id: 'CrossRegionReplicationRule',
+          // ルールを有効にする
           status: 'Enabled',
+          // レプリケーションの優先順位（複数ルールがある場合に適用される順序を定義）
           priority: 1,
+          // レプリケーションの対象を指定（この例では全てのオブジェクトをレプリケーション）
           filter: {
             prefix: '',
           },
+          // バージョニングが有効なバケットの場合、削除マーカーもレプリケーションする設定
           deleteMarkerReplication: {
             status: 'Enabled',
           },
+          // レプリケーションの宛先を指定（セカンダリバケットのARNを使用）
           destination: {
             bucket: props.secondaryBucketArn,
           },

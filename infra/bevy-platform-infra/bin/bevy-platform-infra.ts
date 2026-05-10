@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import * as cdk from 'aws-cdk-lib/core';
+import { Aspects } from 'aws-cdk-lib';
+import { AwsSolutionsChecks } from 'cdk-nag';
 import { BevyPlatformInfraStack } from '../lib/bevy-platform-infra-stack';
 import { SecondaryBucketStack } from '../lib/secondary-bucket-stack';
 
@@ -42,3 +44,6 @@ const primaryStack = new BevyPlatformInfraStack(app, 'BevyPlatformInfraStack', {
 
 // デプロイ順序を保証（セカンダリ作成完了後にプライマリを更新）
 primaryStack.addDependency(secondaryStack);
+
+// cdk-nag: AWS Solutions チェックをアプリ全体に適用
+Aspects.of(app).add(new AwsSolutionsChecks({ verbose: true }));
