@@ -61,6 +61,11 @@ export class BevyPlatformInfraStack extends cdk.Stack {
       bucketName: `${STORAGE_CONFIG.LOG_BUCKET_PREFIX}-${envName}-${this.account}`,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       encryption: s3.BucketEncryption.S3_MANAGED,
+      // AwsSolutions-S10 対策:
+      // アクセスログ専用バケットであっても、バケットポリシーで HTTPS(TLS) 以外の
+      // リクエスト（aws:SecureTransport=false）を拒否することが求められる。
+      // BevyArtifactBucket と同じ方針で enforceSSL を有効化する。
+      enforceSSL: true,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
     });
@@ -84,6 +89,12 @@ export class BevyPlatformInfraStack extends cdk.Stack {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       // S3マネージド暗号化を有効にして、保存データを暗号化する
       encryption: s3.BucketEncryption.S3_MANAGED,
+      // AwsSolutions-S10 対策:
+      // この設定を有効化すると、CDK がバケットポリシーに
+      // 「aws:SecureTransport が false（=HTTP通信）のリクエストを拒否」する
+      // Deny ルールを自動生成する。
+      // これにより、当該バケットへのアクセスを HTTPS(TLS) のみに制限できる。
+      enforceSSL: true,
       // バージョニングを有効にして、誤って削除されたオブジェクトの復元を可能にする
       versioned: true,
       // スタック削除時にバケットも削除する設定（本番環境では注意が必要）

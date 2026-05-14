@@ -26,6 +26,11 @@ export class SecondaryBucketStack extends cdk.Stack {
       bucketName: `${STORAGE_CONFIG.BUCKET_PREFIX}-${props.envName}-secondary-${this.account}`,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       encryption: s3.BucketEncryption.S3_MANAGED,
+      // AwsSolutions-S10 対策:
+      // セカンダリバケットにも HTTPS(TLS) のみを許可するポリシーを強制する。
+      // CDK がバケットポリシーに「aws:SecureTransport=false を Deny」するルールを自動生成する。
+      // プライマリバケット（BevyArtifactBucket）と同一方針を適用する。
+      enforceSSL: true,
       versioned: true,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
