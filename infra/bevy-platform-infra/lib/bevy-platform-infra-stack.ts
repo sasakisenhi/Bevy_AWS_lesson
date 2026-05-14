@@ -2,12 +2,14 @@ import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import { NagSuppressions } from 'cdk-nag';
 
 // 設定値をオブジェクトにまとめる（マジックナンバーの排除）
 const STORAGE_CONFIG = {
   RETENTION_DAYS: 30,
   HISTORY_RETENTION_DAYS: 7,
   BUCKET_PREFIX: 'bevy-artifacts',
+  LOG_BUCKET_PREFIX: 'bevy-artifacts-logs',
 } as const;
 
 interface BevyPlatformInfraStackProps extends cdk.StackProps {
@@ -53,6 +55,26 @@ export class BevyPlatformInfraStack extends cdk.Stack {
         'GitHub OIDC trust is using placeholders. Pass -c githubOwner=<owner> -c githubRepo=<repo> and optionally -c githubBranch=<branch> before deployment.',
       );
     }
+    // アーティファクト用のS3バケットを作成
+
+    const artifactAccessLogBucket = new s3.Bucket(this, 'BevyArtifactAccessLogBucket', {
+      bucketName: `${STORAGE_CONFIG.LOG_BUCKET_PREFIX}-${envName}-${this.account}`,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
+    });
+    // cdk-nagでS3アクセスログバケットに対する警告を抑制（このバケットはアクセスログ専用で、さらにアクセスログのネストを避けるためにサーバーアクセスログを無効にしているため）
+    NagSuppressions.addResourceSuppressions(
+      artifactAccessLogBucket,
+      [
+        {
+          id: 'AwsSolutions-S1',
+          reason: 'This bucket stores S3 access logs for BevyArtifactBucket and does not require nested server access logging.',
+        },
+      ],
+      true,
+    );
 
     const artifactBucket = new s3.Bucket(this, 'BevyArtifactBucket', {
       // 環境名とアカウントIDを組み合わせて一意性を担保
@@ -89,6 +111,9 @@ export class BevyPlatformInfraStack extends cdk.Stack {
           noncurrentVersionExpiration: cdk.Duration.days(STORAGE_CONFIG.HISTORY_RETENTION_DAYS),
         }
       ],
+      // アクセスログの設定これがないとs1の警告が出る。
+      serverAccessLogsBucket: artifactAccessLogBucket,
+      serverAccessLogsPrefix: 'access-logs/',
     });
     // ★ 修正箇所：常に新しいプロバイダーを作るのではなく、既存のARNを参照する
     // 初回作成時（プロバイダーがない状態）は、`fromOpenIdConnectProviderArn` ではなく新規作成するか、または例外を考慮する必要がありますが、

@@ -37,11 +37,13 @@ exports.BevyPlatformInfraStack = void 0;
 const cdk = __importStar(require("aws-cdk-lib"));
 const s3 = __importStar(require("aws-cdk-lib/aws-s3"));
 const iam = __importStar(require("aws-cdk-lib/aws-iam"));
+const cdk_nag_1 = require("cdk-nag");
 // 設定値をオブジェクトにまとめる（マジックナンバーの排除）
 const STORAGE_CONFIG = {
     RETENTION_DAYS: 30,
     HISTORY_RETENTION_DAYS: 7,
     BUCKET_PREFIX: 'bevy-artifacts',
+    LOG_BUCKET_PREFIX: 'bevy-artifacts-logs',
 };
 //GitHub OIDCの設定も定数オブジェクトにまとめる
 const GITHUB_OIDC_CONFIG = {
@@ -72,6 +74,19 @@ class BevyPlatformInfraStack extends cdk.Stack {
             githubRepo === GITHUB_OIDC_CONFIG.PLACEHOLDER_REPO) {
             cdk.Annotations.of(this).addWarning('GitHub OIDC trust is using placeholders. Pass -c githubOwner=<owner> -c githubRepo=<repo> and optionally -c githubBranch=<branch> before deployment.');
         }
+        const artifactAccessLogBucket = new s3.Bucket(this, 'BevyArtifactAccessLogBucket', {
+            bucketName: `${STORAGE_CONFIG.LOG_BUCKET_PREFIX}-${envName}-${this.account}`,
+            blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+            encryption: s3.BucketEncryption.S3_MANAGED,
+            removalPolicy: cdk.RemovalPolicy.DESTROY,
+            autoDeleteObjects: true,
+        });
+        cdk_nag_1.NagSuppressions.addResourceSuppressions(artifactAccessLogBucket, [
+            {
+                id: 'AwsSolutions-S1',
+                reason: 'This bucket stores S3 access logs for BevyArtifactBucket and does not require nested server access logging.',
+            },
+        ], true);
         const artifactBucket = new s3.Bucket(this, 'BevyArtifactBucket', {
             // 環境名とアカウントIDを組み合わせて一意性を担保
             bucketName: `${STORAGE_CONFIG.BUCKET_PREFIX}-${envName}-${this.account}`,
@@ -104,6 +119,8 @@ class BevyPlatformInfraStack extends cdk.Stack {
                     noncurrentVersionExpiration: cdk.Duration.days(STORAGE_CONFIG.HISTORY_RETENTION_DAYS),
                 }
             ],
+            serverAccessLogsBucket: artifactAccessLogBucket,
+            serverAccessLogsPrefix: 'access-logs/',
         });
         // ★ 修正箇所：常に新しいプロバイダーを作るのではなく、既存のARNを参照する
         // 初回作成時（プロバイダーがない状態）は、`fromOpenIdConnectProviderArn` ではなく新規作成するか、または例外を考慮する必要がありますが、
