@@ -36,17 +36,33 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.SecondaryBucketStack = void 0;
 const cdk = __importStar(require("aws-cdk-lib"));
 const s3 = __importStar(require("aws-cdk-lib/aws-s3"));
+const cdk_nag_1 = require("cdk-nag");
 // 定数オブジェクトを定義してマジックナンバーを排除
 const STORAGE_CONFIG = {
     RETENTION_DAYS: 30,
     HISTORY_RETENTION_DAYS: 7,
     BUCKET_PREFIX: 'bevy-artifacts',
+    LOG_BUCKET_PREFIX: 'bevy-artifacts-logs',
 };
 // セカンダリリージョンにアーティファクト用のS3バケットを作成するスタック
 class SecondaryBucketStack extends cdk.Stack {
     bucketName;
     constructor(scope, id, props) {
         super(scope, id, props);
+        const secondaryAccessLogBucket = new s3.Bucket(this, 'BevyArtifactAccessLogBucketSecondary', {
+            bucketName: `${STORAGE_CONFIG.LOG_BUCKET_PREFIX}-${props.envName}-secondary-${this.account}`,
+            blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+            encryption: s3.BucketEncryption.S3_MANAGED,
+            enforceSSL: true,
+            removalPolicy: cdk.RemovalPolicy.DESTROY,
+            autoDeleteObjects: true,
+        });
+        cdk_nag_1.NagSuppressions.addResourceSuppressions(secondaryAccessLogBucket, [
+            {
+                id: 'AwsSolutions-S1',
+                reason: 'This bucket stores S3 access logs for BevyArtifactBucketSecondary and does not require nested server access logging.',
+            },
+        ], true);
         // 環境名とアカウントIDを組み合わせて一意性を担保
         const secondaryBucket = new s3.Bucket(this, 'BevyArtifactBucketSecondary', {
             bucketName: `${STORAGE_CONFIG.BUCKET_PREFIX}-${props.envName}-secondary-${this.account}`,
@@ -56,6 +72,8 @@ class SecondaryBucketStack extends cdk.Stack {
             versioned: true,
             removalPolicy: cdk.RemovalPolicy.DESTROY,
             autoDeleteObjects: true,
+            serverAccessLogsBucket: secondaryAccessLogBucket,
+            serverAccessLogsPrefix: 'access-logs/',
             lifecycleRules: [
                 {
                     id: 'ExpireOldBuilds',

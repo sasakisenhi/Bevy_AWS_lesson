@@ -1,12 +1,14 @@
 import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import { NagSuppressions } from 'cdk-nag';
 
 // 定数オブジェクトを定義してマジックナンバーを排除
 const STORAGE_CONFIG = {
   RETENTION_DAYS: 30,
   HISTORY_RETENTION_DAYS: 7,
   BUCKET_PREFIX: 'bevy-artifacts',
+  LOG_BUCKET_PREFIX: 'bevy-artifacts-logs',
 } as const;
 
 // 定数オブジェクトを定義してマジックナンバーを排除
@@ -21,6 +23,31 @@ export class SecondaryBucketStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: SecondaryBucketStackProps) {
     super(scope, id, props);
 
+    // AwsSolutions-S1 対策:
+    // セカンダリバケットのサーバーアクセスログ保存先として専用バケットを用意する。
+    // ログバケット自体は「ログの受け皿」用途のため、ネストしたアクセスログは設定しない。
+    const secondaryAccessLogBucket = new s3.Bucket(this, 'BevyArtifactAccessLogBucketSecondary', {
+      bucketName: `${STORAGE_CONFIG.LOG_BUCKET_PREFIX}-${props.envName}-secondary-${this.account}`,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
+    });
+    // cdk-nagでセカンダリバケットのアクセスログバケットに対する警告を抑制（このバケットはアクセスログ専用で、さらにアクセスログのネストを避けるためにサーバーアクセスログを無効にしているため）
+    NagSuppressions.addResourceSuppressions(
+      secondaryAccessLogBucket,
+      [
+        {
+          //  このバケットはセカンダリバケットのアクセスログ専用で、さらにアクセスログのネストを避けるためにサーバーアクセスログを無効にしているため、AwsSolutions-S1 の警告を抑制する。
+          id: 'AwsSolutions-S1',
+          // なお、このバケットはアクセスログ専用で、さらにアクセスログのネストを避けるためにサーバーアクセスログを無効にしているため、AwsSolutions-S1 の警告を抑制する。
+          reason: 'This bucket stores S3 access logs for BevyArtifactBucketSecondary and does not require nested server access logging.',
+        },
+      ],
+      true,
+    );
+
     // 環境名とアカウントIDを組み合わせて一意性を担保
     const secondaryBucket = new s3.Bucket(this, 'BevyArtifactBucketSecondary', {
       bucketName: `${STORAGE_CONFIG.BUCKET_PREFIX}-${props.envName}-secondary-${this.account}`,
@@ -34,6 +61,10 @@ export class SecondaryBucketStack extends cdk.Stack {
       versioned: true,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
+      // AwsSolutions-S1 対策:
+      // セカンダリ本体バケットのアクセスログを専用ログバケットへ出力する。
+      serverAccessLogsBucket: secondaryAccessLogBucket,
+      serverAccessLogsPrefix: 'access-logs/',
       lifecycleRules: [
         {
           id: 'ExpireOldBuilds',
