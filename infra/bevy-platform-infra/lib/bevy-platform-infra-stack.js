@@ -147,7 +147,30 @@ class BevyPlatformInfraStack extends cdk.Stack {
             }),
             description: 'Role assumed by GitHub Actions for artifact bucket access',
         });
-        artifactBucket.grantReadWrite(githubRole);
+        githubRole.addToPolicy(new iam.PolicyStatement({
+            actions: [
+                's3:ListBucket',
+                's3:GetBucketLocation',
+            ],
+            resources: [artifactBucket.bucketArn],
+        }));
+        githubRole.addToPolicy(new iam.PolicyStatement({
+            actions: [
+                's3:GetObject',
+                's3:PutObject',
+                's3:DeleteObject',
+                's3:AbortMultipartUpload',
+                's3:ListMultipartUploadParts',
+            ],
+            resources: [`${artifactBucket.bucketArn}/*`],
+        }));
+        cdk_nag_1.NagSuppressions.addResourceSuppressions(githubRole, [
+            {
+                id: 'AwsSolutions-IAM5',
+                reason: 'GitHub Actions uploads build outputs under dynamic object keys (commit SHA paths), which requires object-level resource wildcard while actions are explicitly scoped.',
+                appliesTo: [{ regex: '/^Resource::.*\\/\\*$/' }],
+            },
+        ], true);
         // S3クロスリージョンレプリケーションの設定
         const replicationRole = new iam.Role(this, 'S3ReplicationRole', {
             assumedBy: new iam.ServicePrincipal('s3.amazonaws.com'),
@@ -179,6 +202,13 @@ class BevyPlatformInfraStack extends cdk.Stack {
             ],
             resources: [`${props.secondaryBucketArn}/*`],
         }));
+        cdk_nag_1.NagSuppressions.addResourceSuppressions(replicationRole, [
+            {
+                id: 'AwsSolutions-IAM5',
+                reason: 'Cross-region replication is configured for all objects, which requires object-level wildcard resources in source and destination bucket ARNs.',
+                appliesTo: [{ regex: '/^Resource::.*\\/\\*$/' }],
+            },
+        ], true);
         // S3クロスリージョンレプリケーションの設定をバケットに追加
         const cfnBucket = artifactBucket.node.defaultChild;
         cfnBucket.replicationConfiguration = {

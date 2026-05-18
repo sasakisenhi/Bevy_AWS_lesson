@@ -152,7 +152,55 @@ export class BevyPlatformInfraStack extends cdk.Stack {
       description: 'Role assumed by GitHub Actions for artifact bucket access',
     });
 
-    artifactBucket.grantReadWrite(githubRole);
+    // AwsSolutions-IAM5 対策（GitHub Actions 用ロールの最小権限化）:
+    // `grantReadWrite` は `s3:GetObject*` / `s3:List*` などのワイルドカード Action を含むため、
+    // Workflow で実際に使う S3 操作だけを明示する。
+    // 参照ワークフロー: `.github/workflows/artifact.yml`
+    // - aws s3 ls
+    // - aws s3 sync dist/ s3://.../artifacts/${GITHUB_SHA}/
+    // - aws s3 cp - s3://.../artifacts/${GITHUB_SHA}/_COMPLETE
+    // - aws s3 cp - s3://.../tags/staging_latest.txt
+    //なぜ最小といえるか　- ListBucket はバケットの存在確認とオブジェクトキーの列挙に必要ですが、特定のプレフィックスでの列挙を許可することはできないため、バケット全体に対して ListBucket を許可します。
+    // - GetBucketLocation はリージョン確認のために必要
+    // - GetObject / PutObject / DeleteObject / AbortMultipartUpload / ListMultipartUploadParts はオブジェクトのアップロードと管理に必要で、これらはオブジェクトレベルのリソース指定が必要なため、ARN末尾に `/*` を付けてバケット内の全オブジェクトを対象とします。
+    // これらのアクションは、GitHub Actionsがビルド成果物をバケットにアップロードし、必要に応じて管理するために必要な最小限の権限セットです。
+    githubRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: [
+          's3:ListBucket',
+          's3:GetBucketLocation',
+        ],
+        resources: [artifactBucket.bucketArn],
+      }),
+    );
+
+    githubRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: [
+          's3:GetObject',
+          's3:PutObject',
+          's3:DeleteObject',
+          's3:AbortMultipartUpload',
+          's3:ListMultipartUploadParts',
+        ],
+        resources: [`${artifactBucket.bucketArn}/*`],
+      }),
+    );
+
+    // AwsSolutions-IAM5（Resource wildcard）限定 suppress:
+    // Object レベルの S3 操作は ARN 末尾 `/*` が必要（オブジェクトキーを列挙できないため）。
+    // Action は明示列挙済みで wildcard を使っていないため、Resource のみを限定 suppress する。
+    NagSuppressions.addResourceSuppressions(
+      githubRole,
+      [
+        {
+          id: 'AwsSolutions-IAM5',
+          reason: 'GitHub Actions uploads build outputs under dynamic object keys (commit SHA paths), which requires object-level resource wildcard while actions are explicitly scoped.',
+          appliesTo: [{ regex: '/^Resource::.*\\/\\*$/' }],
+        },
+      ],
+      true,
+    );
 
     // S3クロスリージョンレプリケーションの設定
     const replicationRole = new iam.Role(this, 'S3ReplicationRole', {
@@ -190,6 +238,21 @@ export class BevyPlatformInfraStack extends cdk.Stack {
         ],
         resources: [`${props.secondaryBucketArn}/*`],
       }),
+    );
+
+    // AwsSolutions-IAM5（Replication Role の Resource wildcard）限定 suppress:
+    // 全量クロスリージョンレプリケーション要件では object-level の `/*` が必要。
+    // レプリケーション対象をプレフィックス限定しない現行仕様のため、Resource のみを限定 suppress する。
+    NagSuppressions.addResourceSuppressions(
+      replicationRole,
+      [
+        {
+          id: 'AwsSolutions-IAM5',
+          reason: 'Cross-region replication is configured for all objects, which requires object-level wildcard resources in source and destination bucket ARNs.',
+          appliesTo: [{ regex: '/^Resource::.*\\/\\*$/' }],
+        },
+      ],
+      true,
     );
     // S3クロスリージョンレプリケーションの設定をバケットに追加
     const cfnBucket = artifactBucket.node.defaultChild as s3.CfnBucket;
