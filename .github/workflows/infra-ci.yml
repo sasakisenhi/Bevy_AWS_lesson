@@ -1,0 +1,49 @@
+name: Infra CI
+
+on:
+  pull_request:
+    branches: [ "master" ]
+    # Infraコード、またはこのworkflow自体が変更されたときのみ実行。
+    # これによりRust CIとの二重実行を避ける。
+    paths:
+      - "infra/bevy-platform-infra/**"
+      - ".github/workflows/infra-ci.yml"
+  push:
+    branches: [ "master" ]
+    # master直pushでもinfra関連の変更だけを対象にする。
+    paths:
+      - "infra/bevy-platform-infra/**"
+      - ".github/workflows/infra-ci.yml"
+
+jobs:
+  infra-test:
+    # Branch protectionで指定しやすい、意味の明確な表示名。
+    name: Infra tests (bevy-platform-infra)
+    runs-on: ubuntu-latest
+
+    # 各runステップのデフォルト作業ディレクトリを固定して、
+    # 毎回working-directoryを書く冗長さと書き忘れを防ぐ。
+    defaults:
+      run:
+        working-directory: infra/bevy-platform-infra
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          # 再現性重視のためメジャー固定。
+          node-version: "20"
+          cache: npm
+          # infra配下のlockfileをキャッシュキーに使う。
+          cache-dependency-path: infra/bevy-platform-infra/package-lock.json
+
+      - name: Install dependencies (deterministic)
+        # npm ci は lockfile前提のため、依存解決を毎回同じ状態に揃えられる。
+        run: npm ci
+
+      - name: Run infra unit tests
+        # package.json の "test": "jest" を実行。
+        run: npm test

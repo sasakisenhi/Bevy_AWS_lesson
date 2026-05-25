@@ -6,6 +6,8 @@ target/
 # Node.js / npm
 node_modules/
 package-lock.json
+# CI再現性のため、Infraプロジェクトのlockfileだけは追跡する。
+!infra/bevy-platform-infra/package-lock.json
 npm-debug.log*
 .npm
 
