@@ -2,14 +2,14 @@ name: Infra CI
 
 on:
   pull_request:
-    branches: [ "master" ]
+    branches: ["master"]
     # Infraコード、またはこのworkflow自体が変更されたときのみ実行。
     # これによりRust CIとの二重実行を避ける。
     paths:
       - "infra/bevy-platform-infra/**"
       - ".github/workflows/infra-ci.yml"
   push:
-    branches: [ "master" ]
+    branches: ["master"]
     # master直pushでもinfra関連の変更だけを対象にする。
     paths:
       - "infra/bevy-platform-infra/**"
@@ -43,6 +43,39 @@ jobs:
       - name: Install dependencies (deterministic)
         # npm ci は lockfile前提のため、依存解決を毎回同じ状態に揃えられる。
         run: npm ci
+
+      - name: Preflight required CI variables
+        # ハードコードを避けるため、値はGitHub Variables / Contextから注入する。
+        # 未設定時はここで明示的に停止し、原因を分かりやすくする。
+        env:
+          CDK_ENV: ${{ vars.CDK_ENV }}
+          CDK_DEFAULT_ACCOUNT: ${{ vars.CDK_DEFAULT_ACCOUNT }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${CDK_ENV:-}" ]]; then
+            echo "::error::Repository variable CDK_ENV is not set."
+            exit 1
+          fi
+
+          if [[ -z "${CDK_DEFAULT_ACCOUNT:-}" ]]; then
+            echo "::error::Repository variable CDK_DEFAULT_ACCOUNT is not set."
+            exit 1
+          fi
+
+      - name: Run cdk-nag validation (strict synth)
+        # cdk-nagはアプリのAspectsとして適用済み。--strictで違反をCI失敗にする。
+        # ここでもハードコードせず、owner/repoはGitHub Contextから取得する。
+        env:
+          CDK_ENV: ${{ vars.CDK_ENV }}
+          CDK_DEFAULT_ACCOUNT: ${{ vars.CDK_DEFAULT_ACCOUNT }}
+        run: |
+          npm run synth -- \
+            BevyPlatformInfraStack \
+            --strict \
+            -c env="${CDK_ENV}" \
+            -c githubOwner="${{ github.repository_owner }}" \
+            -c githubRepo="${{ github.event.repository.name }}"
 
       - name: Run infra unit tests
         # package.json の "test": "jest" を実行。
