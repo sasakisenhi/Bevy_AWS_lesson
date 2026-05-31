@@ -11,6 +11,7 @@ const STORAGE_CONFIG = {
   BUCKET_PREFIX: 'bevy-artifacts',
   LOG_BUCKET_PREFIX: 'bevy-artifacts-logs',
 } as const;
+const ACCOUNT_ID_REGEX = /^\d{12}$/;
 
 interface BevyPlatformInfraStackProps extends cdk.StackProps {
   secondaryBucketArn: string;
@@ -25,8 +26,18 @@ const GITHUB_OIDC_CONFIG = {
   PLACEHOLDER_REPO: '<github-repo>',
 } as const;
 
+// プライマリリージョンにアーティファクト用のS3バケットとGitHub OIDCロールを作成するスタック
 export class BevyPlatformInfraStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: BevyPlatformInfraStackProps) {
+    // AWSアカウントIDが明示的に指定されているか、またはAWSアカウントに既にプロバイダーが存在すると想定される場合のARNを検証
+    const hasExplicitAccount = Object.prototype.hasOwnProperty.call(props.env ?? {}, 'account');
+    const explicitAccount = props.env?.account;
+    if (!hasExplicitAccount || !explicitAccount || !ACCOUNT_ID_REGEX.test(explicitAccount)) {
+      throw new Error(
+        'env.account must be explicitly set to a 12-digit AWS account ID. Set CDK_DEFAULT_ACCOUNT before synth/deploy.',
+      );
+    }
+
     super(scope, id, props);
 
     // 実行時に -c env=prod と渡せる

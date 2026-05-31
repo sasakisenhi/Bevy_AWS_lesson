@@ -9,10 +9,16 @@ import { SecondaryBucketStack } from '../lib/secondary-bucket-stack';
 const app = new cdk.App();
 const envName = app.node.tryGetContext('env') || 'dev';
 const account = process.env.CDK_DEFAULT_ACCOUNT;
+const ACCOUNT_ID_REGEX = /^\d{12}$/;
 
 // AWSアカウントIDが環境変数から取得できない場合はエラーをスローして、AWS認証情報の設定を促す
 if (!account) {
   throw new Error('CDK_DEFAULT_ACCOUNT is required. Configure AWS credentials before synth/deploy.');
+}
+
+// AWSアカウントIDが12桁の数字でない場合はエラーをスローして、正しいAWSアカウントIDの設定を促す
+if (!ACCOUNT_ID_REGEX.test(account)) {
+  throw new Error('CDK_DEFAULT_ACCOUNT must be a 12-digit AWS account ID.');
 }
 
 // プライマリリージョンとセカンダリリージョンを定義

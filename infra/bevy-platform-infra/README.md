@@ -1,14 +1,31 @@
-# Welcome to your CDK TypeScript project
+# bevy-platform-infra
 
-This is a blank project for CDK development with TypeScript.
+AWS CDK（TypeScript）で Bevy プラットフォーム用のインフラを定義するパッケージです。
 
-The `cdk.json` file tells the CDK Toolkit how to execute your app.
+## 前提条件
 
-## Useful commands
+- Node.js / npm が利用可能であること
+- AWS 認証情報が設定済みであること
+- **`CDK_DEFAULT_ACCOUNT` を必ず設定すること（必須）**
 
-* `npm run build`   compile typescript to js
-* `npm run watch`   watch for changes and compile
-* `npm run test`    perform the jest unit tests
-* `npx cdk deploy`  deploy this stack to your default AWS account/region
-* `npx cdk diff`    compare deployed stack with current state
-* `npx cdk synth`   emits the synthesized CloudFormation template
+このリポジトリでは `account` 明示指定を運用ルールとしています。  
+`CDK_DEFAULT_ACCOUNT` が未設定の場合は、デプロイ前（最低でも `cdk synth` 前）に fail-fast します。
+
+## 環境変数
+
+- `CDK_DEFAULT_ACCOUNT`: デプロイ対象 AWS アカウント ID（12 桁）
+- `CDK_DEFAULT_REGION`: デプロイ対象リージョン（未指定時は `ap-northeast-1`）
+
+## よく使うコマンド
+
+- `npm run build` : TypeScript をコンパイル
+- `npm run watch` : 変更監視しながらコンパイル
+- `npm run test` : Jest ユニットテストを実行
+- `npx cdk synth` : CloudFormation テンプレートを生成
+- `npx cdk diff` : デプロイ済みとの差分を確認
+- `npx cdk deploy` : スタックをデプロイ
+
+## 注意事項
+
+- 命名規則はリポジトリルートの `design.md` に定義しています。
+- 命名規則テストは正規表現ベースで行いますが、OIDC の信頼条件（`aud` / `sub`）は厳密一致で検証します。

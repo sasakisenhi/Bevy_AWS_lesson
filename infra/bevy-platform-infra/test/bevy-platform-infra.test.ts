@@ -1,10 +1,12 @@
 import * as cdk from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
 import { BevyPlatformInfraStack } from '../lib/bevy-platform-infra-stack';
+import { SecondaryBucketStack } from '../lib/secondary-bucket-stack';
 
 // 正規表現を定義して、バケット名の命名規則を検証
 const PRIMARY_BUCKET_NAME_REGEX = '^bevy-artifacts-(dev|test|stg|prod)-\\d{12}$';
 const LOG_BUCKET_NAME_REGEX = '^bevy-artifacts-logs-(dev|test|stg|prod)-\\d{12}$';
+const EXPLICIT_ACCOUNT_ERROR_REGEX = /env\.account must be explicitly set to a 12-digit AWS account ID/i;
 
 // BevyPlatformInfraStackのユニットテスト
 describe('BevyPlatformInfraStack', () => {
@@ -96,5 +98,53 @@ describe('BevyPlatformInfraStack', () => {
 				]),
 			},
 		});
+	});
+
+	test('fails fast when account is missing or invalid', () => {
+		const app = new cdk.App({
+			context: {
+				env: 'test',
+				githubOwner: 'octo-org',
+				githubRepo: 'bevy-platform-infra',
+			},
+		});
+
+		expect(() => {
+			new BevyPlatformInfraStack(app, 'MissingAccountStack', {
+				env: { region: 'ap-northeast-1' },
+				secondaryBucketArn: 'arn:aws:s3:::bevy-artifacts-test-secondary-123456789012',
+			});
+		}).toThrow(EXPLICIT_ACCOUNT_ERROR_REGEX);
+
+		expect(() => {
+			new BevyPlatformInfraStack(app, 'InvalidAccountStack', {
+				env: { account: 'abc', region: 'ap-northeast-1' },
+				secondaryBucketArn: 'arn:aws:s3:::bevy-artifacts-test-secondary-123456789012',
+			});
+		}).toThrow(EXPLICIT_ACCOUNT_ERROR_REGEX);
+	});
+});
+
+describe('SecondaryBucketStack', () => {
+	test('fails fast when account is missing or invalid', () => {
+		const app = new cdk.App({
+			context: {
+				env: 'test',
+			},
+		});
+
+		expect(() => {
+			new SecondaryBucketStack(app, 'MissingAccountSecondaryStack', {
+				env: { region: 'us-east-1' },
+				envName: 'test',
+			});
+		}).toThrow(EXPLICIT_ACCOUNT_ERROR_REGEX);
+
+		expect(() => {
+			new SecondaryBucketStack(app, 'InvalidAccountSecondaryStack', {
+				env: { account: '', region: 'us-east-1' },
+				envName: 'test',
+			});
+		}).toThrow(EXPLICIT_ACCOUNT_ERROR_REGEX);
 	});
 });

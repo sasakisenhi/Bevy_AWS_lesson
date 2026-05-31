@@ -10,6 +10,7 @@ const STORAGE_CONFIG = {
   BUCKET_PREFIX: 'bevy-artifacts',
   LOG_BUCKET_PREFIX: 'bevy-artifacts-logs',
 } as const;
+const ACCOUNT_ID_REGEX = /^\d{12}$/;
 
 // 定数オブジェクトを定義してマジックナンバーを排除
 interface SecondaryBucketStackProps extends cdk.StackProps {
@@ -21,6 +22,15 @@ export class SecondaryBucketStack extends cdk.Stack {
   public readonly bucketName: string;
 
   constructor(scope: Construct, id: string, props: SecondaryBucketStackProps) {
+    // AWSアカウントIDが明示的に設定されているかを検証
+    const hasExplicitAccount = Object.prototype.hasOwnProperty.call(props.env ?? {}, 'account');
+    const explicitAccount = props.env?.account;
+    if (!hasExplicitAccount || !explicitAccount || !ACCOUNT_ID_REGEX.test(explicitAccount)) {
+      throw new Error(
+        'env.account must be explicitly set to a 12-digit AWS account ID. Set CDK_DEFAULT_ACCOUNT before synth/deploy.',
+      );
+    }
+
     super(scope, id, props);
 
     // AwsSolutions-S1 対策:
