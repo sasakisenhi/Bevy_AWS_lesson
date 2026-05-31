@@ -2,6 +2,10 @@ import * as cdk from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
 import { BevyPlatformInfraStack } from '../lib/bevy-platform-infra-stack';
 
+// 正規表現を定義して、バケット名の命名規則を検証
+const PRIMARY_BUCKET_NAME_REGEX = '^bevy-artifacts-(dev|test|stg|prod)-\\d{12}$';
+const LOG_BUCKET_NAME_REGEX = '^bevy-artifacts-logs-(dev|test|stg|prod)-\\d{12}$';
+
 // BevyPlatformInfraStackのユニットテスト
 describe('BevyPlatformInfraStack', () => {
 	test('creates S3 bucket and GitHub Actions role with branch-scoped trust', () => {
@@ -22,12 +26,16 @@ describe('BevyPlatformInfraStack', () => {
 		const template = Template.fromStack(stack);
 		// S3バケットが2つ作成されていることを確認
 		template.resourceCountIs('AWS::S3::Bucket', 2);
-		// GitHub Actions用のIAMロールが作成されていることを確認
+		// プライマリ成果物バケット名が命名規則に沿っていることを確認
 		template.hasResourceProperties('AWS::S3::Bucket', {
-			BucketName: 'bevy-artifacts-test-123456789012',
+			BucketName: Match.stringLikeRegexp(PRIMARY_BUCKET_NAME_REGEX),
 			LoggingConfiguration: Match.objectLike({
 				LogFilePrefix: 'access-logs/',
 			}),
+		});
+		// アクセスログバケット名が命名規則に沿っていることを確認
+		template.hasResourceProperties('AWS::S3::Bucket', {
+			BucketName: Match.stringLikeRegexp(LOG_BUCKET_NAME_REGEX),
 		});
 		// GitHub OIDCロールの信頼ポリシーが正しく設定されていることを確認
 		template.hasResourceProperties('AWS::IAM::Role', {

@@ -33,11 +33,43 @@
 ## 主要コンセプト（仮）
 
 ### エンティティの考え方
+
 - （仮）ゲーム内の「粒子」「流体」「壁」「熱源」などを、概念として `game_core` に置く
 - それらをどう更新するか（ルール）は `game_logic` に置く
 - 実際に Bevy ECS の Entity/Component に落とすのは `game_runtime` の責務とする
 
 ### 状態更新の単位
+
 - （仮）FixedUpdate（固定ステップ）で物理・シミュレーションを進める
 - Update では入力・UI・描画の調整を行う
 - ただし、最初期は複雑化を避け、段階的に固定ステップへ寄せる
+
+---
+
+## インフラ命名規則（S3 バケット）
+
+CDK テストで命名規則を安定的に検証できるよう、S3 バケット名の規則を先に固定する。
+
+### 命名フォーマット
+
+- プライマリ成果物バケット: `bevy-artifacts-{env}-{accountId}`
+- プライマリアクセスログバケット: `bevy-artifacts-logs-{env}-{accountId}`
+- セカンダリ成果物バケット: `bevy-artifacts-{env}-secondary-{accountId}`
+- セカンダリアクセスログバケット: `bevy-artifacts-logs-{env}-secondary-{accountId}`
+
+### 各プレースホルダーの定義
+
+- `env`: デプロイ環境名。現時点では `dev | test | stg | prod` を推奨する
+- `accountId`: AWS アカウント ID（12 桁の数字）
+
+### 検証方針（テスト向け）
+
+- 命名規則の検証は、固定値の完全一致ではなく正規表現マッチを基本とする
+- 一方で、セキュリティ境界（OIDC `aud` / `sub` 条件など）は従来どおり厳密一致で検証する
+
+参考 regex（CDK assertion で利用する想定）:
+
+- プライマリ成果物: `^bevy-artifacts-(dev|test|stg|prod)-\\d{12}$`
+- プライマリアクセスログ: `^bevy-artifacts-logs-(dev|test|stg|prod)-\\d{12}$`
+- セカンダリ成果物: `^bevy-artifacts-(dev|test|stg|prod)-secondary-\\d{12}$`
+- セカンダリアクセスログ: `^bevy-artifacts-logs-(dev|test|stg|prod)-secondary-\\d{12}$`
