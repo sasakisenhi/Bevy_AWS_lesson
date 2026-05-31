@@ -34,8 +34,10 @@ describe('BevyPlatformInfraStack', () => {
 			}),
 		});
 		// アクセスログバケット名が命名規則に沿っていることを確認
+		// アクセスログバケットにはログの循環参照を避けるため、LoggingConfigurationが設定されていないことを確認
 		template.hasResourceProperties('AWS::S3::Bucket', {
 			BucketName: Match.stringLikeRegexp(LOG_BUCKET_NAME_REGEX),
+			LoggingConfiguration: Match.absent(),
 		});
 		// GitHub OIDCロールの信頼ポリシーが正しく設定されていることを確認
 		template.hasResourceProperties('AWS::IAM::Role', {
