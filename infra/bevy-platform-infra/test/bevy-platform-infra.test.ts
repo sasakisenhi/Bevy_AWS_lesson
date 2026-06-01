@@ -9,6 +9,11 @@ const LOG_BUCKET_NAME_REGEX = '^bevy-artifacts-logs-(dev|test|stg|prod)-\\d{12}$
 const SECONDARY_BUCKET_NAME_REGEX = '^bevy-artifacts-(dev|test|stg|prod)-secondary-\\d{12}$';
 const SECONDARY_LOG_BUCKET_NAME_REGEX = '^bevy-artifacts-logs-(dev|test|stg|prod)-secondary-\\d{12}$';
 const EXPLICIT_ACCOUNT_ERROR_REGEX = /env\.account must be explicitly set to a 12-digit AWS account ID/i;
+const INVALID_GITHUB_OWNER_ERROR_REGEX = /githubOwner must contain only letters, numbers, and hyphens\./i;
+const INVALID_GITHUB_REPO_ERROR_REGEX = /githubRepo must contain only letters, numbers, dots, underscores, and hyphens\./i;
+const INVALID_GITHUB_BRANCH_WILDCARD_ERROR_REGEX = /githubBranch must not contain wildcard characters \(\*, \?, \[\)\./i;
+const INVALID_GITHUB_BRANCH_FORMAT_ERROR_REGEX = /githubBranch must be a valid ref segment/i;
+const INVALID_SECONDARY_BUCKET_ARN_ERROR_REGEX = /secondaryBucketArn must be a valid S3 bucket ARN/i;
 // GitHub OIDCサブクレームの構造を検証するための正規表現
 const GITHUB_AUD_CLAIM = 'token.actions.githubusercontent.com:aud';
 const GITHUB_SUB_CLAIM = 'token.actions.githubusercontent.com:sub';
@@ -176,6 +181,95 @@ describe('BevyPlatformInfraStack', () => {
 				secondaryBucketArn: 'arn:aws:s3:::bevy-artifacts-test-secondary-123456789012',
 			});
 		}).toThrow(EXPLICIT_ACCOUNT_ERROR_REGEX);
+	});
+	// GitHub OIDCのコンテキスト値が無効な場合にエラーがスローされることを確認するテスト
+	test('fails fast when GitHub OIDC context is invalid', () => {
+		expect(() => {
+			const app = new cdk.App({
+				context: {
+					env: 'test',
+					githubOwner: 'octo org',
+					githubRepo: 'bevy-platform-infra',
+					githubBranch: 'main',
+				},
+			});
+			// githubOwnerにスペースが含まれているため、エラーがスローされることを確認
+			new BevyPlatformInfraStack(app, 'InvalidGithubOwnerStack', {
+				// env.accountのエラーを回避するために、accountは有効な値を指定
+				env: { account: '123456789012', region: 'ap-northeast-1' },
+				// secondaryBucketArnは有効な値を指定して、githubOwnerのバリデーションエラーのみが発生するようにする
+				secondaryBucketArn: 'arn:aws:s3:::bevy-artifacts-test-secondary-123456789012',
+			});
+			// ここでは、githubOwnerにスペースが含まれているため、エラーがスローされることを確認
+		}).toThrow(INVALID_GITHUB_OWNER_ERROR_REGEX);
+
+		// githubRepoにスペースが含まれているため、エラーがスローされることを確認
+		expect(() => {
+			const app = new cdk.App({
+				context: {
+					env: 'test',
+					githubOwner: 'octo-org',
+					githubRepo: 'bevy-platform:infra',
+					githubBranch: 'main',
+				},
+			});
+			// githubRepoにスペースが含まれているため、エラーがスローされることを確認
+			new BevyPlatformInfraStack(app, 'InvalidGithubRepoStack', {
+				env: { account: '123456789012', region: 'ap-northeast-1' },
+				secondaryBucketArn: 'arn:aws:s3:::bevy-artifacts-test-secondary-123456789012',
+			});
+		}).toThrow(INVALID_GITHUB_REPO_ERROR_REGEX);
+
+		// githubBranchにワイルドカード文字が含まれているため、エラーがスローされることを確認
+		expect(() => {
+			const app = new cdk.App({
+				context: {
+					env: 'test',
+					githubOwner: 'octo-org',
+					githubRepo: 'bevy-platform-infra',
+					githubBranch: 'main*',
+				},
+			});
+			// githubBranchにワイルドカード文字が含まれているため、エラーがスローされることを確認
+			new BevyPlatformInfraStack(app, 'InvalidGithubBranchWildcardStack', {
+				env: { account: '123456789012', region: 'ap-northeast-1' },
+				secondaryBucketArn: 'arn:aws:s3:::bevy-artifacts-test-secondary-123456789012',
+			});
+		}).toThrow(INVALID_GITHUB_BRANCH_WILDCARD_ERROR_REGEX);
+		// githubBranchの形式が無効なため、エラーがスローされることを確認
+		expect(() => {
+			const app = new cdk.App({
+				context: {
+					env: 'test',
+					githubOwner: 'octo-org',
+					githubRepo: 'bevy-platform-infra',
+					githubBranch: '/main',
+				},
+			});
+			// githubBranchの形式が無効なため、エラーがスローされることを確認
+			new BevyPlatformInfraStack(app, 'InvalidGithubBranchFormatStack', {
+				env: { account: '123456789012', region: 'ap-northeast-1' },
+				secondaryBucketArn: 'arn:aws:s3:::bevy-artifacts-test-secondary-123456789012',
+			});
+		}).toThrow(INVALID_GITHUB_BRANCH_FORMAT_ERROR_REGEX);
+	});
+	// secondaryBucketArnが無効な場合にエラーがスローされることを確認するテスト
+	test('fails fast when secondaryBucketArn is invalid', () => {
+		const app = new cdk.App({
+			context: {
+				env: 'test',
+				githubOwner: 'octo-org',
+				githubRepo: 'bevy-platform-infra',
+				githubBranch: 'main',
+			},
+		});
+
+		expect(() => {
+			new BevyPlatformInfraStack(app, 'InvalidSecondaryBucketArnStack', {
+				env: { account: '123456789012', region: 'ap-northeast-1' },
+				secondaryBucketArn: 'invalid-arn',
+			});
+		}).toThrow(INVALID_SECONDARY_BUCKET_ARN_ERROR_REGEX);
 	});
 });
 

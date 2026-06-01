@@ -12,6 +12,11 @@ const STORAGE_CONFIG = {
   LOG_BUCKET_PREFIX: 'bevy-artifacts-logs',
 } as const;
 const ACCOUNT_ID_REGEX = /^\d{12}$/;
+const GITHUB_OWNER_REGEX = /^[A-Za-z0-9-]+$/;
+const GITHUB_REPO_REGEX = /^[A-Za-z0-9._-]+$/;
+const GITHUB_BRANCH_REGEX = /^(?!\/)(?!.*\/\/)(?!.*\/$)[A-Za-z0-9._/-]+$/;
+const GITHUB_BRANCH_WILDCARD_REGEX = /[?*\[]/;
+const S3_BUCKET_ARN_REGEX = /^arn:aws:s3:::[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/;
 
 interface BevyPlatformInfraStackProps extends cdk.StackProps {
   secondaryBucketArn: string;
@@ -26,6 +31,38 @@ const GITHUB_OIDC_CONFIG = {
   PLACEHOLDER_REPO: '<github-repo>',
 } as const;
 
+// 入力値のバリデーション関数を定義
+function validateSecondaryBucketArn(secondaryBucketArn: string): void {
+  if (!S3_BUCKET_ARN_REGEX.test(secondaryBucketArn)) {
+    throw new Error('secondaryBucketArn must be a valid S3 bucket ARN (e.g. arn:aws:s3:::my-bucket).');
+  }
+}
+// GitHub OIDCのコンテキスト値のバリデーション関数を定義
+function validateGitHubOidcContext(githubOwner?: string, githubRepo?: string, githubBranch?: string): void {
+  if (githubOwner !== undefined && !GITHUB_OWNER_REGEX.test(githubOwner)) {
+    throw new Error('githubOwner must contain only letters, numbers, and hyphens.');
+  }
+
+  // GitHubリポジトリ名は、英数字、ドット、アンダースコア、ハイフンを含むことができますが、スペースやその他の特殊文字は許可されません。
+  if (githubRepo !== undefined && !GITHUB_REPO_REGEX.test(githubRepo)) {
+    throw new Error('githubRepo must contain only letters, numbers, dots, underscores, and hyphens.');
+  }
+// GitHubブランチ名は、リファレンスセグメントとして有効である必要があります。ワイルドカード文字も許可されません。
+  if (githubBranch !== undefined) {
+    if (githubBranch.length === 0) {
+      throw new Error('githubBranch must not be empty.');
+    }
+// ワイルドカード文字（*、?、[）が含まれている場合はエラー
+    if (GITHUB_BRANCH_WILDCARD_REGEX.test(githubBranch)) {
+      throw new Error('githubBranch must not contain wildcard characters (*, ?, [).');
+    }
+// ブランチ名がリファレンスセグメントとして有効であるかを正規表現で検証
+    if (!GITHUB_BRANCH_REGEX.test(githubBranch)) {
+      throw new Error('githubBranch must be a valid ref segment (e.g. main, release/v1.2.3).');
+    }
+  }
+}
+
 // プライマリリージョンにアーティファクト用のS3バケットとGitHub OIDCロールを作成するスタック
 export class BevyPlatformInfraStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: BevyPlatformInfraStackProps) {
@@ -37,15 +74,27 @@ export class BevyPlatformInfraStack extends cdk.Stack {
         'env.account must be explicitly set to a 12-digit AWS account ID. Set CDK_DEFAULT_ACCOUNT before synth/deploy.',
       );
     }
+    // セカンダリバケットのARNを検証
+    validateSecondaryBucketArn(props.secondaryBucketArn);
 
     super(scope, id, props);
 
     // 実行時に -c env=prod と渡せる
     const envName = this.node.tryGetContext('env') || 'dev';
     // GitHub OIDCの設定をコンテキストから取得（プレースホルダーも用意）
-    const githubOwner = this.node.tryGetContext('githubOwner') || GITHUB_OIDC_CONFIG.PLACEHOLDER_OWNER;
-    const githubRepo = this.node.tryGetContext('githubRepo') || GITHUB_OIDC_CONFIG.PLACEHOLDER_REPO;
-    const githubBranch = this.node.tryGetContext('githubBranch');
+    const githubOwnerContext = this.node.tryGetContext('githubOwner');
+    const githubRepoContext = this.node.tryGetContext('githubRepo');
+    const githubBranchContext = this.node.tryGetContext('githubBranch');
+
+    const githubOwnerFromContext = githubOwnerContext !== undefined ? String(githubOwnerContext) : undefined;
+    const githubRepoFromContext = githubRepoContext !== undefined ? String(githubRepoContext) : undefined;
+    const githubBranch = githubBranchContext !== undefined ? String(githubBranchContext) : undefined;
+
+    // GitHub OIDCのコンテキスト値をバリデーション
+    validateGitHubOidcContext(githubOwnerFromContext, githubRepoFromContext, githubBranch);
+
+    const githubOwner = githubOwnerFromContext || GITHUB_OIDC_CONFIG.PLACEHOLDER_OWNER;
+    const githubRepo = githubRepoFromContext || GITHUB_OIDC_CONFIG.PLACEHOLDER_REPO;
     const githubBranches = githubBranch
       ? [String(githubBranch)]
       : GITHUB_OIDC_CONFIG.DEFAULT_BRANCHES;
