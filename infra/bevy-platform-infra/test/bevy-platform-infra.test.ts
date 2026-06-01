@@ -14,6 +14,9 @@ const INVALID_GITHUB_REPO_ERROR_REGEX = /githubRepo must contain only letters, n
 const INVALID_GITHUB_BRANCH_WILDCARD_ERROR_REGEX = /githubBranch must not contain wildcard characters \(\*, \?, \[\)\./i;
 const INVALID_GITHUB_BRANCH_FORMAT_ERROR_REGEX = /githubBranch must be a valid ref segment/i;
 const INVALID_SECONDARY_BUCKET_ARN_ERROR_REGEX = /secondaryBucketArn must be a valid S3 bucket ARN/i;
+const PROD_PLACEHOLDER_VALIDATE_ERROR_REGEX = /in env=prod, githubowner and githubrepo placeholders are not allowed/i;
+const SECONDARY_BUCKET_CONSISTENCY_VALIDATE_ERROR_REGEX = /secondarybucketarn must target .* for env\/account consistency/i;
+const ENV_NAME_VALIDATE_ERROR_REGEX = /envname must be one of dev, test, stg, prod/i;
 // GitHub OIDCサブクレームの構造を検証するための正規表現
 const GITHUB_AUD_CLAIM = 'token.actions.githubusercontent.com:aud';
 const GITHUB_SUB_CLAIM = 'token.actions.githubusercontent.com:sub';
@@ -271,6 +274,44 @@ describe('BevyPlatformInfraStack', () => {
 			});
 		}).toThrow(INVALID_SECONDARY_BUCKET_ARN_ERROR_REGEX);
 	});
+
+	// prod環境でGitHubのプレースホルダー値が使用されている場合に、validateフェーズでエラーが返されることを確認するテスト
+	test('validate phase fails in prod when GitHub placeholders are used', () => {
+		const app = new cdk.App({
+			context: {
+				env: 'prod',
+			},
+		});
+		// スタックを作成して、validateフェーズでエラーが返されることを確認するために、GitHubのプレースホルダー値を使用していることを確認
+		const stack = new BevyPlatformInfraStack(app, 'ProdPlaceholderValidationStack', {
+			env: { account: '123456789012', region: 'ap-northeast-1' },
+			secondaryBucketArn: 'arn:aws:s3:::bevy-artifacts-prod-secondary-123456789012',
+		});
+		// validateフェーズで、prod環境でGitHubのプレースホルダー値が使用されていることに対するエラーが返されることを確認
+		expect(stack.node.validate()).toEqual(
+			expect.arrayContaining([expect.stringMatching(PROD_PLACEHOLDER_VALIDATE_ERROR_REGEX)]),
+		);
+	});
+	// secondaryBucketArnの環境/アカウントがスタックのenvと一致しない場合に、validateフェーズでエラーが返されることを確認するテスト
+	test('validate phase fails when secondary bucket ARN env/account does not match', () => {
+		const app = new cdk.App({
+			context: {
+				env: 'test',
+				githubOwner: 'octo-org',
+				githubRepo: 'bevy-platform-infra',
+				githubBranch: 'main',
+			},
+		});
+		// スタックを作成して、validateフェーズでエラーが返されることを確認するために、secondaryBucketArnの環境/アカウントがスタックのenvと一致しないことを確認
+		const stack = new BevyPlatformInfraStack(app, 'SecondaryArnMismatchValidationStack', {
+			env: { account: '123456789012', region: 'ap-northeast-1' },
+			secondaryBucketArn: 'arn:aws:s3:::bevy-artifacts-dev-secondary-123456789012',
+		});
+		// validateフェーズで、secondaryBucketArnの環境/アカウントがスタックのenvと一致しないことに対するエラーが返されることを確認
+		expect(stack.node.validate()).toEqual(
+			expect.arrayContaining([expect.stringMatching(SECONDARY_BUCKET_CONSISTENCY_VALIDATE_ERROR_REGEX)]),
+		);
+	});
 });
 
 // SecondaryBucketStackのユニットテスト
@@ -372,5 +413,22 @@ describe('SecondaryBucketStack', () => {
 				envName: 'test',
 			});
 		}).toThrow(EXPLICIT_ACCOUNT_ERROR_REGEX);
+	});
+	// envNameがサポートされていない値の場合に、validateフェーズでエラーが返されることを確認するテスト
+	test('validate phase fails when envName is unsupported', () => {
+		const app = new cdk.App({
+			context: {
+				env: 'sandbox',
+			},
+		});
+		// スタックを作成して、validateフェーズでエラーが返されることを確認するために、envNameがサポートされていない値であることを確認
+		const stack = new SecondaryBucketStack(app, 'SecondaryEnvValidationStack', {
+			env: { account: '123456789012', region: 'us-east-1' },
+			envName: 'sandbox',
+		});
+		// validateフェーズで、envNameがサポートされていない値であることに対するエラーが返されることを確認
+		expect(stack.node.validate()).toEqual(
+			expect.arrayContaining([expect.stringMatching(ENV_NAME_VALIDATE_ERROR_REGEX)]),
+		);
 	});
 });

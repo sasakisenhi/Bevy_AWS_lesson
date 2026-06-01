@@ -12,6 +12,7 @@ const STORAGE_CONFIG = {
   LOG_BUCKET_PREFIX: 'bevy-artifacts-logs',
 } as const;
 const ACCOUNT_ID_REGEX = /^\d{12}$/;
+const ENV_NAME_REGEX = /^(dev|test|stg|prod)$/;
 const GITHUB_OWNER_REGEX = /^[A-Za-z0-9-]+$/;
 const GITHUB_REPO_REGEX = /^[A-Za-z0-9._-]+$/;
 const GITHUB_BRANCH_REGEX = /^(?!\/)(?!.*\/\/)(?!.*\/$)[A-Za-z0-9._/-]+$/;
@@ -36,6 +37,11 @@ function validateSecondaryBucketArn(secondaryBucketArn: string): void {
   if (!S3_BUCKET_ARN_REGEX.test(secondaryBucketArn)) {
     throw new Error('secondaryBucketArn must be a valid S3 bucket ARN (e.g. arn:aws:s3:::my-bucket).');
   }
+}
+//
+
+function toBucketNameFromArn(bucketArn: string): string {
+  return bucketArn.replace('arn:aws:s3:::', '');
 }
 // GitHub OIDCのコンテキスト値のバリデーション関数を定義
 function validateGitHubOidcContext(githubOwner?: string, githubRepo?: string, githubBranch?: string): void {
@@ -356,6 +362,46 @@ export class BevyPlatformInfraStack extends cdk.Stack {
     // レプリケーション先バケットのARNを出力
     new cdk.CfnOutput(this, 'ReplicationDestinationBucketArn', {
       value: props.secondaryBucketArn,
+    });
+
+    this.node.addValidation({
+      // スタック全体のバリデーションルールを定義
+      validate: (): string[] => {
+        const errors: string[] = [];
+        // 環境名のバリデーション
+        if (!ENV_NAME_REGEX.test(envName)) {
+          errors.push('env context must be one of dev, test, stg, prod for naming and policy consistency.');
+        }
+        // GitHub OIDCのプレースホルダー値を使用している場合は、prod環境ではエラーとする（prod環境でプレースホルダーは許可しない）
+        if (
+          envName === 'prod' &&
+          (
+            githubOwner === GITHUB_OIDC_CONFIG.PLACEHOLDER_OWNER ||
+            githubRepo === GITHUB_OIDC_CONFIG.PLACEHOLDER_REPO
+          )
+        ) {
+          errors.push('In env=prod, githubOwner and githubRepo placeholders are not allowed. Pass explicit context values.');
+        }
+        // セカンダリバケットARNのバリデーション
+        const expectedSecondaryBucketName = `${STORAGE_CONFIG.BUCKET_PREFIX}-${envName}-secondary-${this.account}`;
+        const secondaryBucketName = toBucketNameFromArn(props.secondaryBucketArn);
+        if (secondaryBucketName !== expectedSecondaryBucketName) {
+          errors.push(
+            `secondaryBucketArn must target ${expectedSecondaryBucketName} for env/account consistency; got ${secondaryBucketName}.`,
+          );
+        }
+        // レプリケーション設定のバリデーション
+        const replicationConfig = cfnBucket.replicationConfiguration as s3.CfnBucket.ReplicationConfigurationProperty | undefined;
+        if (!replicationConfig?.role) {
+          errors.push('S3 replication configuration must include a role ARN.');
+        }
+        const replicationRules = replicationConfig?.rules;
+        if (!Array.isArray(replicationRules) || replicationRules.length === 0) {
+          errors.push('S3 replication configuration must include at least one enabled rule.');
+        }
+
+        return errors;
+      },
     });
   }
 }

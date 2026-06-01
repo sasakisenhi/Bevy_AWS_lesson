@@ -11,6 +11,7 @@ const STORAGE_CONFIG = {
   LOG_BUCKET_PREFIX: 'bevy-artifacts-logs',
 } as const;
 const ACCOUNT_ID_REGEX = /^\d{12}$/;
+const ENV_NAME_REGEX = /^(dev|test|stg|prod)$/;
 
 // 定数オブジェクトを定義してマジックナンバーを排除
 interface SecondaryBucketStackProps extends cdk.StackProps {
@@ -90,6 +91,19 @@ export class SecondaryBucketStack extends cdk.Stack {
     // セカンダリバケットの名前をCloudFormation出力に追加して、プライマリスタックで参照できるようにする
     new cdk.CfnOutput(this, 'SecondaryBucketNameExport', {
       value: secondaryBucket.bucketName,
+    });
+
+    this.node.addValidation({
+      // スタック全体のバリデーションルールを定義
+      validate: (): string[] => {
+        const errors: string[] = [];
+        // 環境名のバリデーション
+        if (!ENV_NAME_REGEX.test(props.envName)) {
+          errors.push('envName must be one of dev, test, stg, prod for naming and policy consistency.');
+        }
+
+        return errors;
+      },
     });
   }
 }
