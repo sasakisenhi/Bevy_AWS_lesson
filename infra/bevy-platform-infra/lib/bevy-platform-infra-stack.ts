@@ -3,83 +3,28 @@ import { Construct } from 'constructs';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import { NagSuppressions } from 'cdk-nag';
-
-// 設定値をオブジェクトにまとめる（マジックナンバーの排除）
-const STORAGE_CONFIG = {
-  RETENTION_DAYS: 30,
-  HISTORY_RETENTION_DAYS: 7,
-  BUCKET_PREFIX: 'bevy-artifacts',
-  LOG_BUCKET_PREFIX: 'bevy-artifacts-logs',
-} as const;
-const ACCOUNT_ID_REGEX = /^\d{12}$/;
-const ENV_NAME_REGEX = /^(dev|test|stg|prod)$/;
-const GITHUB_OWNER_REGEX = /^[A-Za-z0-9-]+$/;
-const GITHUB_REPO_REGEX = /^[A-Za-z0-9._-]+$/;
-const GITHUB_BRANCH_REGEX = /^(?!\/)(?!.*\/\/)(?!.*\/$)[A-Za-z0-9._/-]+$/;
-const GITHUB_BRANCH_WILDCARD_REGEX = /[?*\[]/;
-const S3_BUCKET_ARN_REGEX = /^arn:aws:s3:::[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/;
+// 定数オブジェクトを定義してマジックナンバーを排除
+import {
+  ENV_NAME_REGEX,
+  GITHUB_OIDC_CONFIG,
+  STORAGE_CONFIG,
+} from './config';
+import {
+  toBucketNameFromArn,
+  validateExplicitStackAccount,
+  validateGitHubOidcContext,
+  validateSecondaryBucketArn,
+} from './validators';
 
 interface BevyPlatformInfraStackProps extends cdk.StackProps {
   secondaryBucketArn: string;
-}
-//GitHub OIDCの設定も定数オブジェクトにまとめる
-const GITHUB_OIDC_CONFIG = {
-  PROVIDER_URL: 'https://token.actions.githubusercontent.com',
-  CLIENT_ID: 'sts.amazonaws.com',
-  THUMBPRINT: '6938fd4d98bab03faadb97b34396831e3780a188',
-  DEFAULT_BRANCHES: ['main', 'master'],
-  PLACEHOLDER_OWNER: '<github-owner>',
-  PLACEHOLDER_REPO: '<github-repo>',
-} as const;
-
-// 入力値のバリデーション関数を定義
-function validateSecondaryBucketArn(secondaryBucketArn: string): void {
-  if (!S3_BUCKET_ARN_REGEX.test(secondaryBucketArn)) {
-    throw new Error('secondaryBucketArn must be a valid S3 bucket ARN (e.g. arn:aws:s3:::my-bucket).');
-  }
-}
-//
-
-function toBucketNameFromArn(bucketArn: string): string {
-  return bucketArn.replace('arn:aws:s3:::', '');
-}
-// GitHub OIDCのコンテキスト値のバリデーション関数を定義
-function validateGitHubOidcContext(githubOwner?: string, githubRepo?: string, githubBranch?: string): void {
-  if (githubOwner !== undefined && !GITHUB_OWNER_REGEX.test(githubOwner)) {
-    throw new Error('githubOwner must contain only letters, numbers, and hyphens.');
-  }
-
-  // GitHubリポジトリ名は、英数字、ドット、アンダースコア、ハイフンを含むことができますが、スペースやその他の特殊文字は許可されません。
-  if (githubRepo !== undefined && !GITHUB_REPO_REGEX.test(githubRepo)) {
-    throw new Error('githubRepo must contain only letters, numbers, dots, underscores, and hyphens.');
-  }
-// GitHubブランチ名は、リファレンスセグメントとして有効である必要があります。ワイルドカード文字も許可されません。
-  if (githubBranch !== undefined) {
-    if (githubBranch.length === 0) {
-      throw new Error('githubBranch must not be empty.');
-    }
-// ワイルドカード文字（*、?、[）が含まれている場合はエラー
-    if (GITHUB_BRANCH_WILDCARD_REGEX.test(githubBranch)) {
-      throw new Error('githubBranch must not contain wildcard characters (*, ?, [).');
-    }
-// ブランチ名がリファレンスセグメントとして有効であるかを正規表現で検証
-    if (!GITHUB_BRANCH_REGEX.test(githubBranch)) {
-      throw new Error('githubBranch must be a valid ref segment (e.g. main, release/v1.2.3).');
-    }
-  }
 }
 
 // プライマリリージョンにアーティファクト用のS3バケットとGitHub OIDCロールを作成するスタック
 export class BevyPlatformInfraStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: BevyPlatformInfraStackProps) {
     // AWSアカウントIDが明示的に指定されているか、またはAWSアカウントに既にプロバイダーが存在すると想定される場合のARNを検証
-    const hasExplicitAccount = Object.prototype.hasOwnProperty.call(props.env ?? {}, 'account');
-    const explicitAccount = props.env?.account;
-    if (!hasExplicitAccount || !explicitAccount || !ACCOUNT_ID_REGEX.test(explicitAccount)) {
-      throw new Error(
-        'env.account must be explicitly set to a 12-digit AWS account ID. Set CDK_DEFAULT_ACCOUNT before synth/deploy.',
-      );
-    }
+    validateExplicitStackAccount(props.env);
     // セカンダリバケットのARNを検証
     validateSecondaryBucketArn(props.secondaryBucketArn);
 

@@ -2,16 +2,9 @@ import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import { NagSuppressions } from 'cdk-nag';
-
 // 定数オブジェクトを定義してマジックナンバーを排除
-const STORAGE_CONFIG = {
-  RETENTION_DAYS: 30,
-  HISTORY_RETENTION_DAYS: 7,
-  BUCKET_PREFIX: 'bevy-artifacts',
-  LOG_BUCKET_PREFIX: 'bevy-artifacts-logs',
-} as const;
-const ACCOUNT_ID_REGEX = /^\d{12}$/;
-const ENV_NAME_REGEX = /^(dev|test|stg|prod)$/;
+import { ENV_NAME_REGEX, STORAGE_CONFIG } from './config';
+import { validateExplicitStackAccount } from './validators';
 
 // 定数オブジェクトを定義してマジックナンバーを排除
 interface SecondaryBucketStackProps extends cdk.StackProps {
@@ -24,13 +17,7 @@ export class SecondaryBucketStack extends cdk.Stack {
 
   constructor(scope: Construct, id: string, props: SecondaryBucketStackProps) {
     // AWSアカウントIDが明示的に設定されているかを検証
-    const hasExplicitAccount = Object.prototype.hasOwnProperty.call(props.env ?? {}, 'account');
-    const explicitAccount = props.env?.account;
-    if (!hasExplicitAccount || !explicitAccount || !ACCOUNT_ID_REGEX.test(explicitAccount)) {
-      throw new Error(
-        'env.account must be explicitly set to a 12-digit AWS account ID. Set CDK_DEFAULT_ACCOUNT before synth/deploy.',
-      );
-    }
+    validateExplicitStackAccount(props.env);
 
     super(scope, id, props);
 
