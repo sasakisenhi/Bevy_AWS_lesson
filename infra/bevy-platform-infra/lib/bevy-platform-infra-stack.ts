@@ -15,6 +15,7 @@ import {
   validateGitHubOidcContext,
   validateSecondaryBucketArn,
 } from './validators';
+import { createPrimaryArtifactBuckets } from './s3-buckets';
 
 interface BevyPlatformInfraStackProps extends cdk.StackProps {
   secondaryBucketArn: string;
@@ -67,76 +68,10 @@ export class BevyPlatformInfraStack extends cdk.Stack {
       );
     }
     // アーティファクト用のS3バケットを作成
-
-    const artifactAccessLogBucket = new s3.Bucket(this, 'BevyArtifactAccessLogBucket', {
-      bucketName: `${STORAGE_CONFIG.LOG_BUCKET_PREFIX}-${envName}-${this.account}`,
-      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
-      encryption: s3.BucketEncryption.S3_MANAGED,
-      // AwsSolutions-S10 対策:
-      // アクセスログ専用バケットであっても、バケットポリシーで HTTPS(TLS) 以外の
-      // リクエスト（aws:SecureTransport=false）を拒否することが求められる。
-      // BevyArtifactBucket と同じ方針で enforceSSL を有効化する。
-      enforceSSL: true,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-      autoDeleteObjects: true,
-    });
-    // cdk-nagでS3アクセスログバケットに対する警告を抑制（このバケットはアクセスログ専用で、さらにアクセスログのネストを避けるためにサーバーアクセスログを無効にしているため）
-    NagSuppressions.addResourceSuppressions(
-      artifactAccessLogBucket,
-      [
-        {
-          id: 'AwsSolutions-S1',
-          reason: 'This bucket stores S3 access logs for BevyArtifactBucket and does not require nested server access logging.',
-        },
-      ],
-      true,
-    );
-
-    const artifactBucket = new s3.Bucket(this, 'BevyArtifactBucket', {
-      // 環境名とアカウントIDを組み合わせて一意性を担保
-      bucketName: `${STORAGE_CONFIG.BUCKET_PREFIX}-${envName}-${this.account}`,
-      
-      // セキュリティ強化のための設定を追加
-      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
-      // S3マネージド暗号化を有効にして、保存データを暗号化する
-      encryption: s3.BucketEncryption.S3_MANAGED,
-      // AwsSolutions-S10 対策:
-      // この設定を有効化すると、CDK がバケットポリシーに
-      // 「aws:SecureTransport が false（=HTTP通信）のリクエストを拒否」する
-      // Deny ルールを自動生成する。
-      // これにより、当該バケットへのアクセスを HTTPS(TLS) のみに制限できる。
-      enforceSSL: true,
-      // バージョニングを有効にして、誤って削除されたオブジェクトの復元を可能にする
-      versioned: true,
-      // スタック削除時にバケットも削除する設定（本番環境では注意が必要）
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-      // バケット削除時にオブジェクトも削除する設定（本番環境では注意が必要）
-      autoDeleteObjects: true,
-
-      /* そのほか追加可能な設定
-          ・アクセスログの設定
-          ・特定のリージョンにレプリケーションする設定
-          ・ライフサイクルルールで特定のプレフィックスやタグに基づいてオブジェクトを管理する設定
-          ・アクセスコントロールリスト（ACL）やバケットポリシーで細かいアクセス制御を設定することも可能
-          など
-          詳しくは下記のURLを参照 
-          https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.aws_s3.BucketProps.html
-       */
-
-      // ライフサイクルルールを追加して古いオブジェクトを自動的に削除
-      lifecycleRules: [
-        {
-          id: 'ExpireOldBuilds',
-          enabled: true,
-          // 定数を使用
-          expiration: cdk.Duration.days(STORAGE_CONFIG.RETENTION_DAYS),
-          noncurrentVersionExpiration: cdk.Duration.days(STORAGE_CONFIG.HISTORY_RETENTION_DAYS),
-        }
-      ],
-      // アクセスログの設定これがないとs1の警告が出る。
-      serverAccessLogsBucket: artifactAccessLogBucket,
-      serverAccessLogsPrefix: 'access-logs/',
-    });
+    const {
+      accessLogBucket: artifactAccessLogBucket,
+      artifactBucket,
+    } = createPrimaryArtifactBuckets(this, envName, this.account);
     // ★ 修正箇所：常に新しいプロバイダーを作るのではなく、既存のARNを参照する
     // 初回作成時（プロバイダーがない状態）は、`fromOpenIdConnectProviderArn` ではなく新規作成するか、または例外を考慮する必要がありますが、
     // 既存のエラー（EntityAlreadyExistsException）を回避するため、すでに存在する場合は既存のARNで参照します。
