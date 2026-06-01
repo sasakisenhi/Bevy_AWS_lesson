@@ -6,6 +6,8 @@ import { SecondaryBucketStack } from '../lib/secondary-bucket-stack';
 // 正規表現を定義して、バケット名の命名規則を検証
 const PRIMARY_BUCKET_NAME_REGEX = '^bevy-artifacts-(dev|test|stg|prod)-\\d{12}$';
 const LOG_BUCKET_NAME_REGEX = '^bevy-artifacts-logs-(dev|test|stg|prod)-\\d{12}$';
+const SECONDARY_BUCKET_NAME_REGEX = '^bevy-artifacts-(dev|test|stg|prod)-secondary-\\d{12}$';
+const SECONDARY_LOG_BUCKET_NAME_REGEX = '^bevy-artifacts-logs-(dev|test|stg|prod)-secondary-\\d{12}$';
 const EXPLICIT_ACCOUNT_ERROR_REGEX = /env\.account must be explicitly set to a 12-digit AWS account ID/i;
 // GitHub OIDCサブクレームの構造を検証するための正規表現
 const GITHUB_AUD_CLAIM = 'token.actions.githubusercontent.com:aud';
@@ -151,6 +153,7 @@ describe('BevyPlatformInfraStack', () => {
 		assertStructuredGithubSubs(subs);
 	});
 
+	// env.accountが明示的に設定されていない場合や無効な値が設定されている場合にエラーがスローされることを確認するテスト
 	test('fails fast when account is missing or invalid', () => {
 		const app = new cdk.App({
 			context: {
@@ -176,7 +179,85 @@ describe('BevyPlatformInfraStack', () => {
 	});
 });
 
+// SecondaryBucketStackのユニットテスト
 describe('SecondaryBucketStack', () => {
+	// セカンダリバケットがセキュアなデフォルト設定で作成され、命名規則に従っていることを確認するテスト
+	test('creates secondary buckets with secure defaults and expected naming', () => {
+		const app = new cdk.App({
+			context: {
+				env: 'test',
+			},
+		});
+		// スタックを作成して、テンプレートを取得
+		const stack = new SecondaryBucketStack(app, 'SecondaryBucketAssertionsStack', {
+			env: { account: '123456789012', region: 'us-east-1' },
+			envName: 'test',
+		});
+		// テンプレートからリソースの存在とプロパティを検証
+		const template = Template.fromStack(stack);
+		// S3バケットが2つ作成されていることを確認
+		template.resourceCountIs('AWS::S3::Bucket', 2);
+		// バケットポリシーが2つ作成されていることを確認（セカンダリバケットとアクセスログバケットの両方に必要なため）
+		template.resourceCountIs('AWS::S3::BucketPolicy', 2);
+
+		// セカンダリ本体バケットの主要設定を確認
+		template.hasResourceProperties('AWS::S3::Bucket', {
+			BucketName: Match.stringLikeRegexp(SECONDARY_BUCKET_NAME_REGEX),
+			// セキュリティ強化のため、PublicAccessBlockConfigurationがすべてtrueで設定されていることを確認
+			PublicAccessBlockConfiguration: {
+				BlockPublicAcls: true,
+				BlockPublicPolicy: true,
+				IgnorePublicAcls: true,
+				RestrictPublicBuckets: true,
+			},
+			// バケット暗号化が設定されていることを確認（具体的な設定はMatch.anyValue()で許容）
+			BucketEncryption: Match.objectLike({
+				ServerSideEncryptionConfiguration: Match.anyValue(),
+			}),
+			// バケットのバージョニングが有効になっていることを確認
+			VersioningConfiguration: {
+				Status: 'Enabled',
+			},
+			// アクセスログがセカンダリバケットに保存されるように、LoggingConfigurationが正しく設定されていることを確認
+			LoggingConfiguration: Match.objectLike({
+				LogFilePrefix: 'access-logs/',
+			}),
+			// ライフサイクルルールが設定されていることを確認（古いビルドを30日後に削除し、非現行バージョンを7日後に削除するルールがあることを確認）
+			LifecycleConfiguration: Match.objectLike({
+				Rules: Match.arrayWith([
+					Match.objectLike({
+						Id: 'ExpireOldBuilds',
+						Status: 'Enabled',
+						ExpirationInDays: 30,
+						NoncurrentVersionExpiration: Match.objectLike({
+							NoncurrentDays: 7,
+						}),
+					}),
+				]),
+			}),
+		});
+
+		// アクセスログバケットは命名規則に合致し、ネストしたログ設定を持たない
+		template.hasResourceProperties('AWS::S3::Bucket', {
+			BucketName: Match.stringLikeRegexp(SECONDARY_LOG_BUCKET_NAME_REGEX),
+			// セキュリティ強化のため、PublicAccessBlockConfigurationがすべてtrueで設定されていることを確認
+			PublicAccessBlockConfiguration: {
+				BlockPublicAcls: true,
+				BlockPublicPolicy: true,
+				IgnorePublicAcls: true,
+				RestrictPublicBuckets: true,
+			},
+			// バケット暗号化が設定されていることを確認（具体的な設定はMatch.anyValue()で許容）
+			BucketEncryption: Match.objectLike({
+				ServerSideEncryptionConfiguration: Match.anyValue(),
+			}),
+			// loggingConfigurationが設定されていないことを確認（アクセスログバケットにはログの循環参照を避けるため、LoggingConfigurationが設定されていないことを確認）
+			LoggingConfiguration: Match.absent(),
+		});
+		// セカンダリバケットのARNがスタックの出力に含まれていることを確認
+		template.hasOutput('SecondaryBucketNameExport', {});
+	});
+
 	test('fails fast when account is missing or invalid', () => {
 		const app = new cdk.App({
 			context: {
