@@ -2,7 +2,11 @@
 name: s3-artifact-freeze
 
 on:
-  push:
+  workflow_run:
+    workflows:
+      - Infra CI
+    types:
+      - completed
     branches:
       - main
       - master
@@ -17,18 +21,44 @@ jobs:
     name: Freeze artifacts to S3
     runs-on: ubuntu-latest
     continue-on-error: false
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    concurrency:
+      group: artifact-freeze-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref_name }}
+      cancel-in-progress: false
     env:
       XWIN_CACHE_DIR: /home/runner/.cache/xwin
       CARGO_TERM_COLOR: always
       AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
       AWS_REGION: ${{ vars.AWS_REGION }}
-      S3_BUCKET: ${{ vars.S3_BUCKET }}
 
     steps:
+      - name: Resolve source revision
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+            SOURCE_SHA="${{ github.event.workflow_run.head_sha }}"
+            SOURCE_BRANCH="${{ github.event.workflow_run.head_branch }}"
+          else
+            SOURCE_SHA="${{ github.sha }}"
+            SOURCE_BRANCH="${{ github.ref_name }}"
+          fi
+
+          if [[ -z "$SOURCE_SHA" ]]; then
+            echo "::error::Unable to resolve source commit SHA."
+            exit 1
+          fi
+
+          echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+          echo "source_branch=$SOURCE_BRANCH" >> "$GITHUB_OUTPUT"
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ steps.source.outputs.source_sha }}
 
       - name: Preflight debug for AWS/OIDC inputs
         id: preflight_aws
@@ -37,14 +67,11 @@ jobs:
           set -euo pipefail
 
           echo "== Preflight: AWS/OIDC inputs =="
-          echo "branch=${GITHUB_REF:-unknown}"
+          echo "branch=${{ steps.source.outputs.source_branch }}"
+          echo "source_sha=${{ steps.source.outputs.source_sha }}"
 
           if [[ -z "${AWS_REGION:-}" ]]; then
             echo "::error::AWS_REGION is empty. Set repository variable AWS_REGION."
-            exit 1
-          fi
-          if [[ -z "${S3_BUCKET:-}" ]]; then
-            echo "::error::S3_BUCKET is empty. Set repository variable S3_BUCKET."
             exit 1
           fi
 
@@ -73,7 +100,6 @@ jobs:
           ACCOUNT_ID="$(printf '%s' "$ROLE_ARN" | sed -E 's#^arn:aws(-[a-z]+)?:iam::([0-9]{12}):role/.+#\2#')"
           ROLE_PATH="$(printf '%s' "$ROLE_ARN" | sed -E 's#^arn:aws(-[a-z]+)?:iam::[0-9]{12}:role/##')"
           echo "AWS_REGION=$AWS_REGION"
-          echo "S3_BUCKET=$S3_BUCKET"
           echo "Role account id=$ACCOUNT_ID"
           echo "Role path/name=$ROLE_PATH"
 
@@ -140,7 +166,7 @@ jobs:
         run: |
           set -euo pipefail
           BUILD_TS=$(date -u +"%Y%m%dT%H%M%SZ")
-          SHA="${GITHUB_SHA}"
+          SHA="${{ steps.source.outputs.source_sha }}"
           RUSTC_VERSION=$(rustc -Vv | tr '\n' ';' | sed 's/;*$//')
           CARGO_LOCK_HASH=$(sha256sum Cargo.lock | awk '{print $1}')
           CRATE_NAMES=$(python - <<'PY'
@@ -188,10 +214,30 @@ jobs:
           role-to-assume: ${{ steps.preflight_aws.outputs.role_arn }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Resolve artifact bucket from CloudFormation outputs
+        id: resolve_bucket
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          S3_BUCKET="$(aws cloudformation describe-stacks \
+            --stack-name BevyPlatformInfraStack \
+            --region "$AWS_REGION" \
+            --query 'Stacks[0].Outputs[?OutputKey==`BucketNameExport`].OutputValue' \
+            --output text)"
+
+          if [[ -z "$S3_BUCKET" || "$S3_BUCKET" == "None" ]]; then
+            echo "::error::Failed to resolve BucketNameExport from BevyPlatformInfraStack outputs."
+            exit 1
+          fi
+
+          echo "s3_bucket=$S3_BUCKET" >> "$GITHUB_OUTPUT"
+          echo "Resolved S3_BUCKET=$S3_BUCKET"
+
       - name: Test S3 Access
         shell: bash
         env:
-          S3_BUCKET: ${{ vars.S3_BUCKET }}
+          S3_BUCKET: ${{ steps.resolve_bucket.outputs.s3_bucket }}
         run: |
           set -euo pipefail
           aws s3 ls "s3://${S3_BUCKET}/"
@@ -207,19 +253,25 @@ jobs:
 
       - name: Upload to S3 (Freeze)
         shell: bash
+        env:
+          S3_BUCKET: ${{ steps.resolve_bucket.outputs.s3_bucket }}
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
         run: |
           set -euo pipefail
-          DEST="s3://${S3_BUCKET}/artifacts/${GITHUB_SHA}/"
+          DEST="s3://${S3_BUCKET}/artifacts/${SOURCE_SHA}/"
           aws s3 sync dist/ "$DEST"
-          printf '%s\n' "complete:${GITHUB_SHA}:${{ steps.meta.outputs.build_ts }}" | aws s3 cp - "${DEST}_COMPLETE"
+          printf '%s\n' "complete:${SOURCE_SHA}:${{ steps.meta.outputs.build_ts }}" | aws s3 cp - "${DEST}_COMPLETE"
 
         # ポインタの更新
       - name: Staging update
         if: success()
         shell: bash
+        env:
+          S3_BUCKET: ${{ steps.resolve_bucket.outputs.s3_bucket }}
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
         run: |
           set -euo pipefail
-          echo "${{ github.sha }}" | aws s3 cp - "s3://${S3_BUCKET}/tags/staging_latest.txt"
+          echo "${SOURCE_SHA}" | aws s3 cp - "s3://${S3_BUCKET}/tags/staging_latest.txt"
 
       - name: Backstop xwin cache path
         if: always()
