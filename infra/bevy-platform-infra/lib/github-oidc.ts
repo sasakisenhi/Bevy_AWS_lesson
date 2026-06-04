@@ -75,7 +75,8 @@ export function createGithubActionsRole({
         'cloudformation:DescribeStacks',
       ],
       resources: [
-        `arn:${cdk.Aws.PARTITION}:cloudformation:${cdk.Aws.REGION}:${account}:stack/BevyPlatformInfraStack/*`,
+        `arn:${cdk.Aws.PARTITION}:cloudformation:*:${account}:stack/BevyPlatformInfraStack/*`,
+        `arn:${cdk.Aws.PARTITION}:cloudformation:*:${account}:stack/BevyPlatformInfraSecondaryBucketStack/*`,
       ],
     }),
   );
