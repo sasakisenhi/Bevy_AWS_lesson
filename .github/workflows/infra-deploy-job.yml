@@ -1,0 +1,121 @@
+# インフラストラクチャのデプロイを担当するGitHub Actionsワークフロー。これには、AWS IAMロールの引き受け、CDKの差分確認、CDKのデプロイが含まれる。
+name: infra-deploy-job
+
+on:
+  workflow_call:
+    inputs:
+      cdk_env:
+        required: true
+        type: string
+      cdk_default_account:
+        required: true
+        type: string
+      aws_region:
+        required: true
+        type: string
+      github_owner:
+        required: true
+        type: string
+      github_repo:
+        required: true
+        type: string
+      github_branch:
+        required: true
+        type: string
+    secrets:
+      aws_role_arn:
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  infra-deploy:
+    name: Infra deploy (bevy-platform-infra)
+    runs-on: ubuntu-latest
+    concurrency:
+      group: infra-deploy-${{ inputs.github_branch }}
+      cancel-in-progress: false
+
+    defaults:
+      run:
+        working-directory: infra/bevy-platform-infra
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: infra/bevy-platform-infra/package-lock.json
+
+      - name: Install dependencies (deterministic)
+        run: npm ci
+
+      - name: Preflight required deploy inputs
+        env:
+          CDK_ENV: ${{ inputs.cdk_env }}
+          CDK_DEFAULT_ACCOUNT: ${{ inputs.cdk_default_account }}
+          AWS_REGION: ${{ inputs.aws_region }}
+          AWS_ROLE_ARN: ${{ secrets.aws_role_arn }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${CDK_ENV:-}" ]]; then
+            echo "::error::Repository variable CDK_ENV is not set."
+            exit 1
+          fi
+
+          if [[ -z "${CDK_DEFAULT_ACCOUNT:-}" ]]; then
+            echo "::error::Repository variable CDK_DEFAULT_ACCOUNT is not set."
+            exit 1
+          fi
+
+          if [[ -z "${AWS_REGION:-}" ]]; then
+            echo "::error::Repository variable AWS_REGION is not set."
+            exit 1
+          fi
+
+          if [[ -z "${AWS_ROLE_ARN:-}" ]]; then
+            echo "::error::Repository secret AWS_ROLE_ARN is not set."
+            exit 1
+          fi
+
+      - name: Assume AWS IAM Role via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.aws_role_arn }}
+          aws-region: ${{ inputs.aws_region }}
+
+      - name: CDK diff (pre-deploy)
+        env:
+          CDK_ENV: ${{ inputs.cdk_env }}
+          CDK_DEFAULT_ACCOUNT: ${{ inputs.cdk_default_account }}
+        run: |
+          set -euo pipefail
+          npm run cdk -- diff \
+            BevyPlatformInfraSecondaryBucketStack \
+            BevyPlatformInfraStack \
+            -c env="${CDK_ENV}" \
+            -c githubOwner="${{ inputs.github_owner }}" \
+            -c githubRepo="${{ inputs.github_repo }}" \
+            -c githubBranch="${{ inputs.github_branch }}"
+
+      - name: CDK deploy
+        env:
+          CDK_ENV: ${{ inputs.cdk_env }}
+          CDK_DEFAULT_ACCOUNT: ${{ inputs.cdk_default_account }}
+        run: |
+          set -euo pipefail
+          npm run cdk -- deploy \
+            BevyPlatformInfraSecondaryBucketStack \
+            BevyPlatformInfraStack \
+            --require-approval never \
+            -c env="${CDK_ENV}" \
+            -c githubOwner="${{ inputs.github_owner }}" \
+            -c githubRepo="${{ inputs.github_repo }}" \
+            -c githubBranch="${{ inputs.github_branch }}"

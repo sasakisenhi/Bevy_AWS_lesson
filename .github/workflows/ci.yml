@@ -1,88 +1,99 @@
-name: CI
+# CI/CDパイプラインのGitHub Actionsワークフロー。これには、変更されたパスの検出、アプリケーションCIの呼び出し、インフラテストの呼び出し、インフラデプロイの呼び出し、およびアーティファクトフリーズの呼び出しが含まれる。
+name: CI/CD Pipeline
 
 on:
   pull_request:
-    branches: [ "master" ]
-    # Infra専用workflowに責務を分離したため、
-    # infra配下の変更だけではこのRust向けCIは起動しない。
-    paths-ignore:
-      - "infra/bevy-platform-infra/**"
+    branches: ["main", "master"]
   push:
-    branches: [ "master" ]
-    # push時も同様に、infra変更は infra-ci.yml に委譲する。
-    paths-ignore:
-      - "infra/bevy-platform-infra/**"
+    branches: ["main", "master"]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: ci-cd-${{ github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
-  pr-gate:
-    name: PR Gate (fast & strict)
+  changes:
+    name: Detect changes
     runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.filter.outputs.app }}
+      infra: ${{ steps.filter.outputs.infra }}
 
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
-          components: clippy, rustfmt
+          fetch-depth: 0
 
-      - name: Cache cargo
-        uses: actions/cache@v4
+      - name: Filter changed paths
+        id: filter
+        uses: dorny/paths-filter@v3
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          filters: |
+            app:
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'crates/**'
+              - '.github/workflows/ci.yml'
+              - '.github/workflows/app-ci-job.yml'
+            infra:
+              - 'infra/bevy-platform-infra/**'
+              - '.github/workflows/ci.yml'
+              - '.github/workflows/infra-test-job.yml'
+              - '.github/workflows/infra-deploy-job.yml'
+              - '.github/workflows/artifact-job.yml'
+              - '.github/workflows/infra-ci.yml'
+              - '.github/workflows/artifact.yml'
 
-      # ---------- フォーマッティング ----------
-      - name: Check formatting
-        run: cargo fmt -- --check
+  call-app-ci:
+    name: Call App CI
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    uses: ./.github/workflows/app-ci-job.yml
 
-      # ---------- 安全性 / 公開リポジトリチェック ----------
-      - name: Check forbidden files
-        run: |
-          forbidden_files=(
-            ".env"
-            ".env.local"
-            "*.pem"
-            "*.key"
-            "*.p12"
-            "id_rsa"
-          )
+  call-infra-test:
+    name: Call Infra Test
+    needs: changes
+    if: needs.changes.outputs.infra == 'true'
+    uses: ./.github/workflows/infra-test-job.yml
+    with:
+      cdk_env: ${{ vars.CDK_ENV }}
+      cdk_default_account: ${{ vars.CDK_DEFAULT_ACCOUNT }}
+      github_owner: ${{ github.repository_owner }}
+      github_repo: ${{ github.event.repository.name }}
 
-          for pattern in "${forbidden_files[@]}"; do
-            if find . -name "$pattern" | grep -q .; then
-              echo "Forbidden file detected: $pattern"
-              exit 1
-            fi
-          done
+  call-infra-deploy:
+    name: Call Infra Deploy
+    needs: [changes, call-infra-test]
+    if: needs.changes.outputs.infra == 'true' && github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    uses: ./.github/workflows/infra-deploy-job.yml
+    with:
+      cdk_env: ${{ vars.CDK_ENV }}
+      cdk_default_account: ${{ vars.CDK_DEFAULT_ACCOUNT }}
+      aws_region: ${{ vars.AWS_REGION }}
+      github_owner: ${{ github.repository_owner }}
+      github_repo: ${{ github.event.repository.name }}
+      github_branch: ${{ github.ref_name }}
+    secrets:
+      aws_role_arn: ${{ secrets.AWS_ROLE_ARN }}
 
-      - name: Check license file
-        run: |
-          if [ ! -f LICENSE ] && [ ! -f LICENSE.md ]; then
-            echo "LICENSE file is missing"
-            exit 1
-          fi
-
-      # ---------- 健全性チェック ----------
-      - name: Cargo check (fast)
-        run: cargo check -p game_core -p game_logic --locked
-
-      # ---------- ユニットテスト ----------
-      - name: Run unit tests (core)
-        run: cargo test -p game_core --locked
-
-      - name: Run unit tests (logic)
-        run: cargo test -p game_logic --locked
-
-      # ---------- リント ----------
-      - name: Clippy (core)
-        run: cargo clippy -p game_core -- -D warnings
-
-      - name: Clippy (logic)
-        run: cargo clippy -p game_logic -- -D warnings
-
-      # ---------- ビルド ----------
-      - name: Build workspace
-        run: cargo build -p game_core -p game_logic --locked
+  call-artifact:
+    name: Call Artifact Freeze
+    needs: [changes, call-app-ci, call-infra-deploy]
+    if: |
+      github.event_name == 'push' &&
+      needs.changes.outputs.infra == 'true' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') &&
+      needs.call-infra-deploy.result == 'success' &&
+      (needs.call-app-ci.result == 'success' || needs.call-app-ci.result == 'skipped')
+    uses: ./.github/workflows/artifact-job.yml
+    with:
+      aws_region: ${{ vars.AWS_REGION }}
+      source_sha: ${{ github.sha }}
+      source_branch: ${{ github.ref_name }}
+    secrets:
+      aws_role_arn: ${{ secrets.AWS_ROLE_ARN }}

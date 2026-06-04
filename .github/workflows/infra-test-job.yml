@@ -1,0 +1,76 @@
+# インフラストラクチャのテストを担当するGitHub Actionsワークフロー。これには、リポジトリのチェックアウト、Node.jsのセットアップ、依存関係のインストール、必要なCI変数の事前確認、CDK Nagによる厳密な合成の実行、およびインフラユニットテストの実行が含まれる。さらに、
+name: infra-test-job
+
+on:
+  workflow_call:
+    inputs:
+      cdk_env:
+        required: true
+        type: string
+      cdk_default_account:
+        required: true
+        type: string
+      github_owner:
+        required: true
+        type: string
+      github_repo:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  infra-test:
+    name: Infra tests (bevy-platform-infra)
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: infra/bevy-platform-infra
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: infra/bevy-platform-infra/package-lock.json
+
+      - name: Install dependencies (deterministic)
+        run: npm ci
+
+      - name: Preflight required CI variables
+        env:
+          CDK_ENV: ${{ inputs.cdk_env }}
+          CDK_DEFAULT_ACCOUNT: ${{ inputs.cdk_default_account }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${CDK_ENV:-}" ]]; then
+            echo "::error::Repository variable CDK_ENV is not set."
+            exit 1
+          fi
+
+          if [[ -z "${CDK_DEFAULT_ACCOUNT:-}" ]]; then
+            echo "::error::Repository variable CDK_DEFAULT_ACCOUNT is not set."
+            exit 1
+          fi
+
+      - name: Run cdk-nag validation (strict synth)
+        env:
+          CDK_ENV: ${{ inputs.cdk_env }}
+          CDK_DEFAULT_ACCOUNT: ${{ inputs.cdk_default_account }}
+        run: |
+          npm run synth -- \
+            BevyPlatformInfraStack \
+            --strict \
+            -c env="${CDK_ENV}" \
+            -c githubOwner="${{ inputs.github_owner }}" \
+            -c githubRepo="${{ inputs.github_repo }}"
+
+      - name: Run infra unit tests
+        run: npm test

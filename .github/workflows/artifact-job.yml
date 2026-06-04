@@ -1,0 +1,379 @@
+#S3にアーティファクトをアップロードするGitHub Actionsワークフロー。これには、Rustツールチェインのセットアップ、ビルドの実行、AWS IAMロールの引き受け、S3へのアップロード、
+#およびビルドメトリクスの収集と公開が含まれる。さらに、
+#CDK Nagの警告を抑制するためのコメントも含まれている。
+name: artifact-job
+
+on:
+  workflow_call:
+    inputs:
+      aws_region:
+        required: true
+        type: string
+      source_sha:
+        required: true
+        type: string
+      source_branch:
+        required: true
+        type: string
+    secrets:
+      aws_role_arn:
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  freeze-artifacts-to-s3:
+    name: Freeze artifacts to S3
+    runs-on: ubuntu-latest
+    continue-on-error: false
+    concurrency:
+      group: artifact-freeze-${{ inputs.source_branch }}
+      cancel-in-progress: false
+    env:
+      XWIN_CACHE_DIR: /home/runner/.cache/xwin
+      CARGO_TERM_COLOR: always
+      AWS_ROLE_ARN: ${{ secrets.aws_role_arn }}
+      AWS_REGION: ${{ inputs.aws_region }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.source_sha }}
+
+      - name: Preflight debug for AWS/OIDC inputs
+        id: preflight_aws
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "== Preflight: AWS/OIDC inputs =="
+          echo "branch=${{ inputs.source_branch }}"
+          echo "source_sha=${{ inputs.source_sha }}"
+
+          if [[ -z "${AWS_REGION:-}" ]]; then
+            echo "::error::AWS_REGION is empty. Set repository variable AWS_REGION."
+            exit 1
+          fi
+
+          RAW_ARN="${AWS_ROLE_ARN:-}"
+          if [[ -z "$RAW_ARN" ]]; then
+            echo "::error::AWS_ROLE_ARN is empty. Set repository secret AWS_ROLE_ARN."
+            exit 1
+          fi
+
+          ROLE_ARN="$(printf '%s' "$RAW_ARN" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+
+          if [[ "$ROLE_ARN" =~ ^\".*\"$ ]]; then
+            ROLE_ARN="${ROLE_ARN:1:${#ROLE_ARN}-2}"
+          elif [[ "$ROLE_ARN" =~ ^\'.*\'$ ]]; then
+            ROLE_ARN="${ROLE_ARN:1:${#ROLE_ARN}-2}"
+          fi
+
+          if [[ ! "$ROLE_ARN" =~ ^arn:aws(-[a-z]+)?:iam::[0-9]{12}:role\/[A-Za-z0-9+=,.@_\/-]+$ ]]; then
+            echo "::error::AWS_ROLE_ARN format is invalid."
+            echo "::error::Expected: arn:aws:iam::<12-digit-account-id>:role/<role-name-or-path>"
+            exit 1
+          fi
+
+          ACCOUNT_ID="$(printf '%s' "$ROLE_ARN" | sed -E 's#^arn:aws(-[a-z]+)?:iam::([0-9]{12}):role/.+#\2#')"
+          ROLE_PATH="$(printf '%s' "$ROLE_ARN" | sed -E 's#^arn:aws(-[a-z]+)?:iam::[0-9]{12}:role/##')"
+          echo "AWS_REGION=$AWS_REGION"
+          echo "Role account id=$ACCOUNT_ID"
+          echo "Role path/name=$ROLE_PATH"
+
+          echo "role_arn=$ROLE_ARN" >> "$GITHUB_OUTPUT"
+          echo "Preflight check passed."
+
+      - name: Initialize metrics baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          NOW="$(date +%s)"
+          echo "METRICS_TOOLCHAIN_START=$NOW" >> "$GITHUB_ENV"
+          echo "METRICS_CACHE_START=0" >> "$GITHUB_ENV"
+          echo "METRICS_BUILD_START=0" >> "$GITHUB_ENV"
+          echo "METRICS_UPLOAD_START=0" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          target: x86_64-pc-windows-msvc
+
+      - name: Install LLVM and Clang
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld llvm
+
+      - name: Install cargo-xwin
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-xwin
+
+      - name: Add Windows target
+        run: rustup target add x86_64-pc-windows-msvc
+
+      - name: Mark toolchain phase end
+        shell: bash
+        run: |
+          set -euo pipefail
+          NOW="$(date +%s)"
+          echo "METRICS_TOOLCHAIN_END=$NOW" >> "$GITHUB_ENV"
+          echo "METRICS_CACHE_START=$NOW" >> "$GITHUB_ENV"
+
+      - name: Prepare xwin cache directory
+        run: mkdir -p "$XWIN_CACHE_DIR"
+
+      - name: xwin cache
+        id: xwin_cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.XWIN_CACHE_DIR }}
+          key: ${{ runner.os }}-xwin-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-xwin-
+
+      - name: Rust Cache
+        id: rust_cache
+        uses: swatinem/rust-cache@v2
+        with:
+          key: x86_64-pc-windows-msvc
+
+      - name: Mark cache phase end
+        shell: bash
+        run: |
+          set -euo pipefail
+          NOW="$(date +%s)"
+          echo "METRICS_CACHE_END=$NOW" >> "$GITHUB_ENV"
+          echo "METRICS_BUILD_START=$NOW" >> "$GITHUB_ENV"
+
+      - name: Collect metadata
+        id: meta
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          BUILD_TS=$(date -u +"%Y%m%dT%H%M%SZ")
+          SHA="${SOURCE_SHA}"
+          RUSTC_VERSION=$(rustc -Vv | tr '\n' ';' | sed 's/;*$//')
+          CARGO_LOCK_HASH=$(sha256sum Cargo.lock | awk '{print $1}')
+          CRATE_NAMES=$(python - <<'PY'
+          import json, subprocess
+          meta = subprocess.check_output(["cargo","metadata","--no-deps","--format-version","1"], text=True)
+          data = json.loads(meta)
+          names = sorted({p["name"] for p in data["packages"]})
+          print(",".join(names))
+          PY
+          )
+
+          echo "build_ts=$BUILD_TS" >> "$GITHUB_OUTPUT"
+          mkdir -p artifact_bundle
+          cat > artifact_bundle/metadata.json <<EOF
+          {
+            "git_sha": "$SHA",
+            "build_timestamp_utc": "$BUILD_TS",
+            "rustc_version": "$RUSTC_VERSION",
+            "cargo_lock_hash": "$CARGO_LOCK_HASH",
+            "crate_names": "$CRATE_NAMES"
+          }
+          EOF
+          cp Cargo.lock artifact_bundle/Cargo.lock
+
+      - name: Build game (Release) --locked
+        run: cargo xwin build --release --target x86_64-pc-windows-msvc --locked
+
+      - name: Mark build phase end
+        shell: bash
+        run: |
+          set -euo pipefail
+          NOW="$(date +%s)"
+          echo "METRICS_BUILD_END=$NOW" >> "$GITHUB_ENV"
+
+      - name: Mark AWS auth start
+        shell: bash
+        run: echo "METRICS_AWS_AUTH_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - name: Assume AWS IAM Role via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ steps.preflight_aws.outputs.role_arn }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Mark AWS auth end
+        shell: bash
+        run: echo "METRICS_AWS_AUTH_END=$(date +%s)" >> "$GITHUB_ENV"
+
+      - name: Resolve artifact bucket from CloudFormation outputs
+        id: resolve_bucket
+        shell: bash
+        run: |
+          set -euo pipefail
+          START="$(date +%s)"
+
+          S3_BUCKET="$(aws cloudformation describe-stacks \
+            --stack-name BevyPlatformInfraStack \
+            --region "$AWS_REGION" \
+            --query 'Stacks[0].Outputs[?OutputKey==`BucketNameExport`].OutputValue' \
+            --output text)"
+
+          if [[ -z "$S3_BUCKET" || "$S3_BUCKET" == "None" ]]; then
+            echo "::error::Failed to resolve BucketNameExport from BevyPlatformInfraStack outputs."
+            exit 1
+          fi
+
+          END="$(date +%s)"
+          echo "s3_bucket=$S3_BUCKET" >> "$GITHUB_OUTPUT"
+          echo "cfn_fetch_sec=$((END - START))" >> "$GITHUB_OUTPUT"
+
+      - name: Mark upload phase start
+        shell: bash
+        run: echo "METRICS_UPLOAD_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - name: Test S3 Access
+        shell: bash
+        env:
+          S3_BUCKET: ${{ steps.resolve_bucket.outputs.s3_bucket }}
+        run: aws s3 ls "s3://${S3_BUCKET}/"
+
+      - name: Bundle artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp target/x86_64-pc-windows-msvc/release/game_runtime.exe dist/game.exe
+          cp artifact_bundle/metadata.json dist/
+          cp artifact_bundle/Cargo.lock dist/
+
+      - name: Upload to S3 (Freeze)
+        shell: bash
+        env:
+          S3_BUCKET: ${{ steps.resolve_bucket.outputs.s3_bucket }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          DEST="s3://${S3_BUCKET}/artifacts/${SOURCE_SHA}/"
+          aws s3 sync dist/ "$DEST"
+          printf '%s\n' "complete:${SOURCE_SHA}:${{ steps.meta.outputs.build_ts }}" | aws s3 cp - "${DEST}_COMPLETE"
+
+      - name: Staging update
+        if: success()
+        shell: bash
+        env:
+          S3_BUCKET: ${{ steps.resolve_bucket.outputs.s3_bucket }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: echo "${SOURCE_SHA}" | aws s3 cp - "s3://${S3_BUCKET}/tags/staging_latest.txt"
+
+      - name: Mark upload phase end
+        if: success()
+        shell: bash
+        run: echo "METRICS_UPLOAD_END=$(date +%s)" >> "$GITHUB_ENV"
+
+      - name: Generate and upload metrics
+        if: success()
+        id: metrics
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          SOURCE_BRANCH: ${{ inputs.source_branch }}
+          S3_BUCKET: ${{ steps.resolve_bucket.outputs.s3_bucket }}
+          CFN_FETCH_SEC: ${{ steps.resolve_bucket.outputs.cfn_fetch_sec }}
+          XWIN_CACHE_HIT: ${{ steps.xwin_cache.outputs.cache-hit }}
+          RUST_CACHE_HIT: ${{ steps.rust_cache.outputs.cache-hit }}
+        run: |
+          set -euo pipefail
+
+          toolchain_prepare_sec="$((METRICS_TOOLCHAIN_END - METRICS_TOOLCHAIN_START))"
+          cache_restore_sec="$((METRICS_CACHE_END - METRICS_CACHE_START))"
+          build_sec="$((METRICS_BUILD_END - METRICS_BUILD_START))"
+          aws_auth_sec="$((METRICS_AWS_AUTH_END - METRICS_AWS_AUTH_START))"
+          upload_sec="$((METRICS_UPLOAD_END - METRICS_UPLOAD_START))"
+
+          if [[ -z "${XWIN_CACHE_HIT:-}" ]]; then XWIN_CACHE_HIT="unknown"; fi
+          if [[ -z "${RUST_CACHE_HIT:-}" ]]; then RUST_CACHE_HIT="unknown"; fi
+
+          artifact_size_bytes="$(stat -c%s dist/game.exe)"
+          METRICS_FILE="artifact_bundle/metrics.json"
+
+          cat > "$METRICS_FILE" <<EOF
+          {
+            "schema_version": 1,
+            "git_sha": "${SOURCE_SHA}",
+            "branch": "${SOURCE_BRANCH}",
+            "run_id": "${GITHUB_RUN_ID}",
+            "run_attempt": "${GITHUB_RUN_ATTEMPT}",
+            "toolchain_prepare_sec": ${toolchain_prepare_sec},
+            "cache_restore_sec": ${cache_restore_sec},
+            "build_sec": ${build_sec},
+            "aws_auth_sec": ${aws_auth_sec},
+            "cfn_fetch_sec": ${CFN_FETCH_SEC:-0},
+            "upload_sec": ${upload_sec},
+            "xwin_cache_hit": "${XWIN_CACHE_HIT}",
+            "rust_cache_hit": "${RUST_CACHE_HIT}",
+            "artifact_size_bytes": ${artifact_size_bytes}
+          }
+          EOF
+
+          DEST="s3://${S3_BUCKET}/artifacts/${SOURCE_SHA}/"
+          aws s3 cp "$METRICS_FILE" "${DEST}metrics.json"
+          cp "$METRICS_FILE" dist/metrics.json
+
+          echo "toolchain_prepare_sec=${toolchain_prepare_sec}" >> "$GITHUB_OUTPUT"
+          echo "cache_restore_sec=${cache_restore_sec}" >> "$GITHUB_OUTPUT"
+          echo "build_sec=${build_sec}" >> "$GITHUB_OUTPUT"
+          echo "aws_auth_sec=${aws_auth_sec}" >> "$GITHUB_OUTPUT"
+          echo "cfn_fetch_sec=${CFN_FETCH_SEC:-0}" >> "$GITHUB_OUTPUT"
+          echo "upload_sec=${upload_sec}" >> "$GITHUB_OUTPUT"
+          echo "artifact_size_bytes=${artifact_size_bytes}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish metrics summary
+        if: success()
+        shell: bash
+        run: |
+          {
+            echo "## Build Metrics"
+            echo ""
+            echo "| Metric | Value |"
+            echo "|---|---:|"
+            echo "| toolchain_prepare_sec | ${{ steps.metrics.outputs.toolchain_prepare_sec }} |"
+            echo "| cache_restore_sec | ${{ steps.metrics.outputs.cache_restore_sec }} |"
+            echo "| build_sec | ${{ steps.metrics.outputs.build_sec }} |"
+            echo "| aws_auth_sec | ${{ steps.metrics.outputs.aws_auth_sec }} |"
+            echo "| cfn_fetch_sec | ${{ steps.metrics.outputs.cfn_fetch_sec }} |"
+            echo "| upload_sec | ${{ steps.metrics.outputs.upload_sec }} |"
+            echo "| artifact_size_bytes | ${{ steps.metrics.outputs.artifact_size_bytes }} |"
+            echo ""
+            echo "xwin_cache_hit: ${{ steps.xwin_cache.outputs.cache-hit }}"
+            echo "rust_cache_hit: ${{ steps.rust_cache.outputs.cache-hit }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Backstop xwin cache path
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$XWIN_CACHE_DIR"
+          echo "xwin cache path: $XWIN_CACHE_DIR"
+          du -sh "$XWIN_CACHE_DIR" || true
+
+      - name: Cleanup
+        if: always()
+        shell: bash
+        run: |
+          rm -rf artifact_bundle dist
+            echo "| aws_auth_sec | ${{ steps.metrics.outputs.aws_auth_sec }} |"
+            echo "| cfn_fetch_sec | ${{ steps.metrics.outputs.cfn_fetch_sec }} |"
+            echo "| upload_sec | ${{ steps.metrics.outputs.upload_sec }} |"
+            echo "| artifact_size_bytes | ${{ steps.metrics.outputs.artifact_size_bytes }} |"
+            echo ""
+            echo "xwin_cache_hit: ${{ steps.xwin_cache.outputs.cache-hit }}"
+            echo "rust_cache_hit: ${{ steps.rust_cache.outputs.cache-hit }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Cleanup
+        if: always()
+        shell: bash
+        run: rm -rf artifact_bundle dist
