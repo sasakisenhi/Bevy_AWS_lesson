@@ -1,3 +1,4 @@
+import * as cdk from 'aws-cdk-lib';
 import {
   ACCOUNT_ID_REGEX,
   GITHUB_BRANCH_REGEX,
@@ -33,6 +34,12 @@ export function validateCdkDefaultAccount(account?: string): string {
 }
 // envNameがサポートされている値であることを検証する関数
 export function validateSecondaryBucketArn(secondaryBucketArn: string): void {
+  // synth時点では、別スタック由来の値が未解決トークンになる場合がある
+  // （例: arn:aws:s3:::${Token[TOKEN.123]})。このケースは有効として扱う。
+  if (cdk.Token.isUnresolved(secondaryBucketArn)) {
+    return;
+  }
+
   if (!S3_BUCKET_ARN_REGEX.test(secondaryBucketArn)) {
     throw new Error('secondaryBucketArn must be a valid S3 bucket ARN (e.g. arn:aws:s3:::my-bucket).');
   }

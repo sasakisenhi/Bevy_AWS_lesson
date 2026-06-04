@@ -1,4 +1,5 @@
 import { Construct } from 'constructs';
+import * as cdk from 'aws-cdk-lib';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 
 import { ENV_NAME_REGEX, GITHUB_OIDC_CONFIG, STORAGE_CONFIG } from './config';
@@ -51,7 +52,10 @@ export function registerPrimaryStackValidation({
       const expectedSecondaryBucketName = `${STORAGE_CONFIG.BUCKET_PREFIX}-${envName}-secondary-${account}`;
       const secondaryBucketName = toBucketNameFromArn(secondaryBucketArn);
       // セカンダリバケットARNが、envNameとaccountに基づいて予想されるバケット名を指していることを検証
-      if (secondaryBucketName !== expectedSecondaryBucketName) {
+      const isUnresolvedSecondaryArn =
+        cdk.Token.isUnresolved(secondaryBucketArn) || secondaryBucketName.includes('${Token[');
+
+      if (!isUnresolvedSecondaryArn && secondaryBucketName !== expectedSecondaryBucketName) {
         errors.push(
           `secondaryBucketArn must target ${expectedSecondaryBucketName} for env/account consistency; got ${secondaryBucketName}.`,
         );

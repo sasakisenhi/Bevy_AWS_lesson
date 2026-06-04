@@ -67,7 +67,7 @@ export function createCodeBuildPreparationRole({
       {
         id: 'AwsSolutions-IAM5',
         reason: 'CodeBuild writes dynamic artifact object keys and dynamic log group/stream names, requiring wildcard resource suffixes while actions remain explicitly scoped.',
-        appliesTo: [{ regex: '/^Resource::.*\*$/' }],
+        appliesTo: [{ regex: '/^Resource::.*\\*$/' }],
       },
     ],
     true,
