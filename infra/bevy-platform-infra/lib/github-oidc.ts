@@ -1,4 +1,5 @@
 import { Construct } from 'constructs';
+import * as cdk from 'aws-cdk-lib';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import { NagSuppressions } from 'cdk-nag';
@@ -67,14 +68,27 @@ export function createGithubActionsRole({
     }),
   );
 
-  // CDK Nagの警告を抑制。理由は、GitHub Actionsが動的なオブジェクトキー（コミットSHAパス）でビルド出力をアップロードするため、アクションは明示的にスコープされているものの、オブジェクトレベルのリソースワイルドカードが必要になるため。
+  // CloudFormation outputsを参照して実行時設定を動的解決するための読み取り権限を付与する。
+  githubRole.addToPolicy(
+    new iam.PolicyStatement({
+      actions: [
+        'cloudformation:DescribeStacks',
+      ],
+      resources: [
+        `arn:${cdk.Aws.PARTITION}:cloudformation:${cdk.Aws.REGION}:${account}:stack/BevyPlatformInfraStack/*`,
+      ],
+    }),
+  );
+
+  // CDK Nagの警告を抑制。理由は、GitHub Actionsが動的なオブジェクトキーとCloudFormationスタックIDサフィックスを扱うため、
+  // リソース末尾ワイルドカードが必要になるため。
   NagSuppressions.addResourceSuppressions(
     githubRole,
     [
       {
         id: 'AwsSolutions-IAM5',
-        reason: 'GitHub Actions uploads build outputs under dynamic object keys (commit SHA paths), which requires object-level resource wildcard while actions are explicitly scoped.',
-        appliesTo: [{ regex: '/^Resource::.*\\/\\*$/' }],
+        reason: 'GitHub Actions uses dynamic object keys and CloudFormation stack-id suffixes, requiring wildcard resource suffixes while actions remain explicitly scoped.',
+        appliesTo: [{ regex: '/^Resource::.*\/\*$/' }],
       },
     ],
     true,

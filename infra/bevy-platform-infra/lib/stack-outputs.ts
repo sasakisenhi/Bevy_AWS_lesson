@@ -8,6 +8,7 @@ export interface PrimaryStackOutputProps {
   scope: Construct;
   artifactBucket: s3.IBucket;
   githubRole: iam.IRole;
+  codeBuildServiceRole: iam.IRole;
   secondaryBucketArn: string;
 }
 
@@ -22,6 +23,7 @@ export function addPrimaryStackOutputs({
   scope,
   artifactBucket,
   githubRole,
+  codeBuildServiceRole,
   secondaryBucketArn,
 }: PrimaryStackOutputProps): void {
   new cdk.CfnOutput(scope, 'BucketNameExport', {
@@ -30,6 +32,10 @@ export function addPrimaryStackOutputs({
 // GitHub ActionsロールのARNを出力する。これにより、GitHub ActionsがプライマリバケットにアクセスするためのIAMロールのARNが提供される。
   new cdk.CfnOutput(scope, 'GithubActionsRoleArn', {
     value: githubRole.roleArn,
+  });
+// 将来のCodeBuild移行に備えたサービスロールARNを出力する。
+  new cdk.CfnOutput(scope, 'CodeBuildServiceRoleArn', {
+    value: codeBuildServiceRole.roleArn,
   });
 // セカンダリバケットのARNを出力する。これにより、クロスリージョンレプリケーションの宛先バケットのARNが提供される。
   new cdk.CfnOutput(scope, 'ReplicationDestinationBucketArn', {

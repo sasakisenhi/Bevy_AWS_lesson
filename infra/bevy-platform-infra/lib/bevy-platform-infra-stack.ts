@@ -11,6 +11,7 @@ import {
 } from './validators';
 import { createPrimaryArtifactBuckets } from './s3-buckets';
 import { createGithubActionsRole } from './github-oidc';
+import { createCodeBuildPreparationRole } from './codebuild-prep-role';
 import { setupCrossRegionReplication } from './s3-replication';
 import { registerPrimaryStackValidation } from './stack-validators';
 import { addPrimaryStackOutputs } from './stack-outputs';
@@ -75,6 +76,12 @@ export class BevyPlatformInfraStack extends cdk.Stack {
       githubSubs,
     });
 
+    // 将来のCodeBuild移行に備えた最小サービスロールを作成
+    const codeBuildServiceRole = createCodeBuildPreparationRole({
+      scope: this,
+      artifactBucket,
+    });
+
     // S3クロスリージョンレプリケーションを設定
     const { cfnBucket } = setupCrossRegionReplication({
       scope: this,
@@ -87,6 +94,7 @@ export class BevyPlatformInfraStack extends cdk.Stack {
       scope: this,
       artifactBucket,
       githubRole,
+      codeBuildServiceRole,
       secondaryBucketArn: props.secondaryBucketArn,
     });
 

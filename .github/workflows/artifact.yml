@@ -21,6 +21,7 @@ jobs:
     name: Freeze artifacts to S3
     runs-on: ubuntu-latest
     continue-on-error: false
+    # workflow_runの成功時、または手動トリガーで実行。これにより、CI成功後に成果物をS3にアップロードする。
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     concurrency:
       group: artifact-freeze-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref_name }}
@@ -32,6 +33,7 @@ jobs:
       AWS_REGION: ${{ vars.AWS_REGION }}
 
     steps:
+      # --- 前半は、ソースコードのチェックアウト、AWS認証情報の設定、ビルド環境の準備などを行う。CIワークフローと同様の手順で、成果物のビルドに必要な環境を整える。
       - name: Resolve source revision
         id: source
         shell: bash
@@ -45,7 +47,6 @@ jobs:
             SOURCE_SHA="${{ github.sha }}"
             SOURCE_BRANCH="${{ github.ref_name }}"
           fi
-
           if [[ -z "$SOURCE_SHA" ]]; then
             echo "::error::Unable to resolve source commit SHA."
             exit 1
@@ -58,6 +59,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          # チェックアウトするコミットを、CIワークフローで特定されたソースSHAに固定する。これにより、CIでビルドされた成果物と同じコードを使用してアーティファクトをビルドできる。
           ref: ${{ steps.source.outputs.source_sha }}
 
       - name: Preflight debug for AWS/OIDC inputs
@@ -106,6 +108,17 @@ jobs:
           echo "role_arn=$ROLE_ARN" >> "$GITHUB_OUTPUT"
           echo "Preflight check passed."
 
+      - name: Initialize metrics baseline
+        id: metrics_init
+        shell: bash
+        run: |
+          set -euo pipefail
+          NOW="$(date +%s)"
+          echo "METRICS_TOOLCHAIN_START=$NOW" >> "$GITHUB_ENV"
+          echo "METRICS_CACHE_START=0" >> "$GITHUB_ENV"
+          echo "METRICS_BUILD_START=0" >> "$GITHUB_ENV"
+          echo "METRICS_UPLOAD_START=0" >> "$GITHUB_ENV"
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -126,6 +139,14 @@ jobs:
       - name: Add Windows target
         run: rustup target add x86_64-pc-windows-msvc
 
+      - name: Mark toolchain phase end
+        shell: bash
+        run: |
+          set -euo pipefail
+          NOW="$(date +%s)"
+          echo "METRICS_TOOLCHAIN_END=$NOW" >> "$GITHUB_ENV"
+          echo "METRICS_CACHE_START=$NOW" >> "$GITHUB_ENV"
+
       - name: Prepare xwin cache directory
         run: mkdir -p "$XWIN_CACHE_DIR"
 
@@ -141,6 +162,7 @@ jobs:
 
       # xwinのキャッシュ
       - name: xwin cache
+        id: xwin_cache
         uses: actions/cache@v4
         with:
           path: ${{ env.XWIN_CACHE_DIR }}
@@ -149,9 +171,18 @@ jobs:
             ${{ runner.os }}-xwin-
       # Rustのキャッシュ
       - name: Rust Cache
+        id: rust_cache
         uses: swatinem/rust-cache@v2
         with:
           key: x86_64-pc-windows-msvc
+
+      - name: Mark cache phase end
+        shell: bash
+        run: |
+          set -euo pipefail
+          NOW="$(date +%s)"
+          echo "METRICS_CACHE_END=$NOW" >> "$GITHUB_ENV"
+          echo "METRICS_BUILD_START=$NOW" >> "$GITHUB_ENV"
 
       # --- 意図的にやらないこと ---
       # fmt / clippy / test は実施しない（ci.yml の責務）
@@ -198,6 +229,19 @@ jobs:
       # Releaseビルドの実行
       - name: Build game (Release) --locked
         run: cargo xwin build --release --target x86_64-pc-windows-msvc --locked
+        # --locked フラグを付けて、Cargo.lockに厳密に従ってビルドする。これにより、CIでビルドされた成果物と同じ依存関係でビルドされることが保証される。
+      - name: Mark build phase end
+        shell: bash
+        run: |
+          set -euo pipefail
+          NOW="$(date +%s)"
+          echo "METRICS_BUILD_END=$NOW" >> "$GITHUB_ENV"
+
+      - name: Mark AWS auth start
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "METRICS_AWS_AUTH_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - name: Debug xwin cache path (after build)
         if: always()
@@ -214,11 +258,20 @@ jobs:
           role-to-assume: ${{ steps.preflight_aws.outputs.role_arn }}
           aws-region: ${{ env.AWS_REGION }}
 
+          # AWS認証情報を設定するためのステップ。OIDCを使用して、GitHub ActionsランナーがAWS IAMロールを引き受けることを可能にする。これにより、AWSへの安全なアクセスが可能になり、S3への成果物のアップロードなどの操作が行えるようになる。
+      - name: Mark AWS auth end
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "METRICS_AWS_AUTH_END=$(date +%s)" >> "$GITHUB_ENV"
+
+          # AWS認証情報を設定するためのステップ。OIDCを使用して、GitHub ActionsランナーがAWS IAMロールを引き受けることを可能にする。これにより、AWSへの安全なアクセスが可能になり、S3への成果物のアップロードなどの操作が行えるようになる。
       - name: Resolve artifact bucket from CloudFormation outputs
         id: resolve_bucket
         shell: bash
         run: |
           set -euo pipefail
+          START="$(date +%s)"
 
           S3_BUCKET="$(aws cloudformation describe-stacks \
             --stack-name BevyPlatformInfraStack \
@@ -231,8 +284,20 @@ jobs:
             exit 1
           fi
 
+          # CloudFormationからS3バケット名を解決するステップ。これにより、CIワークフローで使用されているインフラストラクチャスタックから、成果物をアップロードするS3バケットの名前が動的に取得される。これにより、環境ごとに異なるバケットを使用することが可能になる。
+          END="$(date +%s)"
+          CFN_FETCH_SEC="$((END - START))"
+
           echo "s3_bucket=$S3_BUCKET" >> "$GITHUB_OUTPUT"
+          echo "cfn_fetch_sec=$CFN_FETCH_SEC" >> "$GITHUB_OUTPUT"
           echo "Resolved S3_BUCKET=$S3_BUCKET"
+
+          # S3バケットへのアクセスをテストするステップ。これにより、AWS認証情報が正しく設定されていることと、指定されたS3バケットにアクセスできることが確認される。これにより、後続のアップロードステップでの失敗を事前に検出できる。
+      - name: Mark upload phase start
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "METRICS_UPLOAD_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - name: Test S3 Access
         shell: bash
@@ -272,6 +337,105 @@ jobs:
         run: |
           set -euo pipefail
           echo "${SOURCE_SHA}" | aws s3 cp - "s3://${S3_BUCKET}/tags/staging_latest.txt"
+
+          # 成功した場合に、staging_latest.txtを更新して、最新の成果物のSHAを指すようにするステップ。これにより、他のプロセスやユーザーがS3上で最新の成果物を簡単に参照できるようになる。
+      - name: Mark upload phase end
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "METRICS_UPLOAD_END=$(date +%s)" >> "$GITHUB_ENV"
+
+          # 成功した場合に、アップロードフェーズの終了時間を記録するステップ。これにより、アップロードにかかった時間を測定し、後で分析できるようになる。
+      - name: Generate and upload metrics
+        if: success()
+        id: metrics
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+          SOURCE_BRANCH: ${{ steps.source.outputs.source_branch }}
+          S3_BUCKET: ${{ steps.resolve_bucket.outputs.s3_bucket }}
+          CFN_FETCH_SEC: ${{ steps.resolve_bucket.outputs.cfn_fetch_sec }}
+          XWIN_CACHE_HIT: ${{ steps.xwin_cache.outputs.cache-hit }}
+          RUST_CACHE_HIT: ${{ steps.rust_cache.outputs.cache-hit }}
+        run: |
+          set -euo pipefail
+
+          toolchain_prepare_sec="$((METRICS_TOOLCHAIN_END - METRICS_TOOLCHAIN_START))"
+          cache_restore_sec="$((METRICS_CACHE_END - METRICS_CACHE_START))"
+          build_sec="$((METRICS_BUILD_END - METRICS_BUILD_START))"
+          aws_auth_sec="$((METRICS_AWS_AUTH_END - METRICS_AWS_AUTH_START))"
+          upload_sec="$((METRICS_UPLOAD_END - METRICS_UPLOAD_START))"
+
+          # キャッシュヒットの値が空の場合は "unknown" として扱う。これにより、キャッシュが使用されたかどうかの情報が失われることを防ぎ、後で分析する際に不明な値として区別できるようになる。
+          if [[ -z "${XWIN_CACHE_HIT:-}" ]]; then
+            XWIN_CACHE_HIT="unknown"
+          fi
+          if [[ -z "${RUST_CACHE_HIT:-}" ]]; then
+            RUST_CACHE_HIT="unknown"
+          fi
+
+          artifact_size_bytes="$(stat -c%s dist/game.exe)"
+          METRICS_FILE="artifact_bundle/metrics.json"
+
+          # メトリクスをJSONファイルにまとめてS3にアップロードするステップ。これにより、ビルドプロセスの各フェーズの所要時間やキャッシュヒットの情報などのメトリクスが記録され、後で分析できるようになる。また、これらのメトリクスは、ビルドのパフォーマンスを監視し、改善するための重要なデータポイントとなる。
+          cat > "$METRICS_FILE" <<EOF
+          {
+            "schema_version": 1,
+            "git_sha": "${SOURCE_SHA}",
+            "branch": "${SOURCE_BRANCH}",
+            "run_id": "${GITHUB_RUN_ID}",
+            "run_attempt": "${GITHUB_RUN_ATTEMPT}",
+            "toolchain_prepare_sec": ${toolchain_prepare_sec},
+            "cache_restore_sec": ${cache_restore_sec},
+            "build_sec": ${build_sec},
+            "aws_auth_sec": ${aws_auth_sec},
+            "cfn_fetch_sec": ${CFN_FETCH_SEC:-0},
+            "upload_sec": ${upload_sec},
+            "xwin_cache_hit": "${XWIN_CACHE_HIT}",
+            "rust_cache_hit": "${RUST_CACHE_HIT}",
+            "artifact_size_bytes": ${artifact_size_bytes}
+          }
+          EOF
+
+          # メトリクスをJSONファイルにまとめてS3にアップロードするステップ。これにより、ビルドプロセスの各フェーズの所要時間やキャッシュヒットの情報などのメトリクスが記録され、後で分析できるようになる。また、これらのメトリクスは、ビルドのパフォーマンスを監視し、改善するための重要なデータポイントとなる。
+          DEST="s3://${S3_BUCKET}/artifacts/${SOURCE_SHA}/"
+          aws s3 cp "$METRICS_FILE" "${DEST}metrics.json"
+
+          mkdir -p dist
+          cp "$METRICS_FILE" dist/metrics.json
+
+          # メトリクスをJSONファイルにまとめてS3にアップロードするステップ。これにより、ビルドプロセスの各フェーズの所要時間やキャッシュヒットの情報などのメトリクスが記録され、後で分析できるようになる。また、これらのメトリクスは、ビルドのパフォーマンスを監視し、改善するための重要なデータポイントとなる。
+          echo "toolchain_prepare_sec=${toolchain_prepare_sec}" >> "$GITHUB_OUTPUT"
+          echo "cache_restore_sec=${cache_restore_sec}" >> "$GITHUB_OUTPUT"
+          echo "build_sec=${build_sec}" >> "$GITHUB_OUTPUT"
+          echo "aws_auth_sec=${aws_auth_sec}" >> "$GITHUB_OUTPUT"
+          echo "cfn_fetch_sec=${CFN_FETCH_SEC:-0}" >> "$GITHUB_OUTPUT"
+          echo "upload_sec=${upload_sec}" >> "$GITHUB_OUTPUT"
+          echo "artifact_size_bytes=${artifact_size_bytes}" >> "$GITHUB_OUTPUT"
+
+          # キャッシュヒットの値が空の場合は "unknown" として扱う。これにより、キャッシュが使用されたかどうかの情報が失われることを防ぎ、後で分析する際に不明な値として区別できるようになる。
+      - name: Publish metrics summary
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "## Build Metrics"
+            echo ""
+            echo "| Metric | Value |"
+            echo "|---|---:|"
+            echo "| toolchain_prepare_sec | ${{ steps.metrics.outputs.toolchain_prepare_sec }} |"
+            echo "| cache_restore_sec | ${{ steps.metrics.outputs.cache_restore_sec }} |"
+            echo "| build_sec | ${{ steps.metrics.outputs.build_sec }} |"
+            echo "| aws_auth_sec | ${{ steps.metrics.outputs.aws_auth_sec }} |"
+            echo "| cfn_fetch_sec | ${{ steps.metrics.outputs.cfn_fetch_sec }} |"
+            echo "| upload_sec | ${{ steps.metrics.outputs.upload_sec }} |"
+            echo "| artifact_size_bytes | ${{ steps.metrics.outputs.artifact_size_bytes }} |"
+            echo ""
+            echo "xwin_cache_hit: ${{ steps.xwin_cache.outputs.cache-hit }}"
+            echo "rust_cache_hit: ${{ steps.rust_cache.outputs.cache-hit }}"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Backstop xwin cache path
         if: always()
