@@ -1,14 +1,10 @@
 import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
-import * as s3 from 'aws-cdk-lib/aws-s3';
 
 import {
-  ENV_NAME_REGEX,
   GITHUB_OIDC_CONFIG,
-  STORAGE_CONFIG,
 } from './config';
 import {
-  toBucketNameFromArn,
   validateExplicitStackAccount,
   validateGitHubOidcContext,
   validateSecondaryBucketArn,
@@ -16,6 +12,8 @@ import {
 import { createPrimaryArtifactBuckets } from './s3-buckets';
 import { createGithubActionsRole } from './github-oidc';
 import { setupCrossRegionReplication } from './s3-replication';
+import { registerPrimaryStackValidation } from './stack-validators';
+import { addPrimaryStackOutputs } from './stack-outputs';
 
 interface BevyPlatformInfraStackProps extends cdk.StackProps {
   secondaryBucketArn: string;
@@ -84,63 +82,23 @@ export class BevyPlatformInfraStack extends cdk.Stack {
       secondaryBucketArn: props.secondaryBucketArn,
     });
 
-    // バケット名を出力
-    new cdk.CfnOutput(this, 'BucketNameExport', {
-      value: artifactBucket.bucketName,
+// スタックの出力を追加
+    addPrimaryStackOutputs({
+      scope: this,
+      artifactBucket,
+      githubRole,
+      secondaryBucketArn: props.secondaryBucketArn,
     });
 
-    // GitHub ActionsロールのARNを出力
-    new cdk.CfnOutput(this, 'GithubActionsRoleArn', {
-      value: githubRole.roleArn,
-    });
-
-    // レプリケーション先バケットのARNを出力
-    new cdk.CfnOutput(this, 'ReplicationDestinationBucketArn', {
-      value: props.secondaryBucketArn,
-    });
-
-    this.node.addValidation({
-      // スタック全体のバリデーションルールを定義
-      validate: (): string[] => {
-        const errors: string[] = [];
-
-        // 環境名のバリデーション
-        if (!ENV_NAME_REGEX.test(envName)) {
-          errors.push('env context must be one of dev, test, stg, prod for naming and policy consistency.');
-        }
-
-        // GitHub OIDCのプレースホルダー値を使用している場合は、prod環境ではエラーとする
-        if (
-          envName === 'prod' &&
-          (
-            githubOwner === GITHUB_OIDC_CONFIG.PLACEHOLDER_OWNER ||
-            githubRepo === GITHUB_OIDC_CONFIG.PLACEHOLDER_REPO
-          )
-        ) {
-          errors.push('In env=prod, githubOwner and githubRepo placeholders are not allowed. Pass explicit context values.');
-        }
-
-        // セカンダリバケットARNのバリデーション
-        const expectedSecondaryBucketName = `${STORAGE_CONFIG.BUCKET_PREFIX}-${envName}-secondary-${this.account}`;
-        const secondaryBucketName = toBucketNameFromArn(props.secondaryBucketArn);
-        if (secondaryBucketName !== expectedSecondaryBucketName) {
-          errors.push(
-            `secondaryBucketArn must target ${expectedSecondaryBucketName} for env/account consistency; got ${secondaryBucketName}.`,
-          );
-        }
-
-        // レプリケーション設定のバリデーション
-        const replicationConfig = cfnBucket.replicationConfiguration as s3.CfnBucket.ReplicationConfigurationProperty | undefined;
-        if (!replicationConfig?.role) {
-          errors.push('S3 replication configuration must include a role ARN.');
-        }
-        const replicationRules = replicationConfig?.rules;
-        if (!Array.isArray(replicationRules) || replicationRules.length === 0) {
-          errors.push('S3 replication configuration must include at least one enabled rule.');
-        }
-
-        return errors;
-      },
+// スタックのバリデーションを登録
+    registerPrimaryStackValidation({
+      scope: this,
+      envName,
+      account: this.account,
+      githubOwner,
+      githubRepo,
+      secondaryBucketArn: props.secondaryBucketArn,
+      cfnBucket,
     });
   }
 }

@@ -1,9 +1,9 @@
 import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
-// 定数オブジェクトを定義してマジックナンバーを排除
-import { ENV_NAME_REGEX } from './config';
 import { validateExplicitStackAccount } from './validators';
 import { createSecondaryArtifactBuckets } from './s3-buckets';
+import { registerSecondaryStackValidation } from './stack-validators';
+import { addSecondaryStackOutputs } from './stack-outputs';
 
 // 定数オブジェクトを定義してマジックナンバーを排除
 interface SecondaryBucketStackProps extends cdk.StackProps {
@@ -24,22 +24,14 @@ export class SecondaryBucketStack extends cdk.Stack {
 
     this.bucketName = secondaryBucket.bucketName;
 
-    // セカンダリバケットの名前をCloudFormation出力に追加して、プライマリスタックで参照できるようにする
-    new cdk.CfnOutput(this, 'SecondaryBucketNameExport', {
-      value: secondaryBucket.bucketName,
+    addSecondaryStackOutputs({
+      scope: this,
+      secondaryBucket,
     });
 
-    this.node.addValidation({
-      // スタック全体のバリデーションルールを定義
-      validate: (): string[] => {
-        const errors: string[] = [];
-        // 環境名のバリデーション
-        if (!ENV_NAME_REGEX.test(props.envName)) {
-          errors.push('envName must be one of dev, test, stg, prod for naming and policy consistency.');
-        }
-
-        return errors;
-      },
+    registerSecondaryStackValidation({
+      scope: this,
+      envName: props.envName,
     });
   }
 }
