@@ -91,6 +91,40 @@ jobs:
           role-to-assume: ${{ secrets.aws_role_arn }}
           aws-region: ${{ inputs.aws_region }}
 
+      - name: Diagnose AWS identity and CDK bootstrap access
+        env:
+          CDK_DEFAULT_ACCOUNT: ${{ inputs.cdk_default_account }}
+          AWS_REGION: ${{ inputs.aws_region }}
+          AWS_PAGER: ""
+        run: |
+          set -euo pipefail
+
+          CURRENT_ACCOUNT="$(aws sts get-caller-identity --query 'Account' --output text)"
+          CURRENT_ARN="$(aws sts get-caller-identity --query 'Arn' --output text)"
+
+          echo "AWS caller identity account: ${CURRENT_ACCOUNT}"
+          echo "AWS caller identity arn: ${CURRENT_ARN}"
+
+          if [[ "${CURRENT_ACCOUNT}" != "${CDK_DEFAULT_ACCOUNT}" ]]; then
+            echo "::error::Assumed account (${CURRENT_ACCOUNT}) does not match CDK_DEFAULT_ACCOUNT (${CDK_DEFAULT_ACCOUNT})."
+            exit 1
+          fi
+
+          check_bootstrap_region() {
+            local region="$1"
+            local bootstrap_bucket="cdk-hnb659fds-assets-${CDK_DEFAULT_ACCOUNT}-${region}"
+
+            echo "Checking bootstrap resources in region: ${region}"
+            aws s3api head-bucket --bucket "${bootstrap_bucket}"
+            aws cloudformation describe-stacks --region "${region}" --stack-name CDKToolkit --query 'Stacks[0].StackStatus' --output text
+            aws ssm get-parameter --region "${region}" --name /cdk-bootstrap/hnb659fds/version --query 'Parameter.Value' --output text
+          }
+
+          check_bootstrap_region "us-east-1"
+          if [[ "${AWS_REGION}" != "us-east-1" ]]; then
+            check_bootstrap_region "${AWS_REGION}"
+          fi
+
       - name: CDK diff (pre-deploy)
         env:
           CDK_ENV: ${{ inputs.cdk_env }}
