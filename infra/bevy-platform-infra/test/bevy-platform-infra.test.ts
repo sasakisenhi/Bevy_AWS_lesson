@@ -31,6 +31,18 @@ interface OidcCondition {
 	StringLike?: Record<string, string | string[]>;
 }
 
+interface IamPolicyResource {
+	Properties?: {
+		PolicyName?: string;
+		PolicyDocument?: {
+			Statement?: Array<{
+				Action?: string | string[];
+				Resource?: unknown;
+			}>;
+		};
+	};
+}
+
 // GitHub OIDCの信頼条件をテンプレートから抽出するユーティリティ関数
 function getGithubOidcCondition(template: Template): OidcCondition {
 	// テンプレートからIAMロールをすべて取得し、GitHub OIDCを信頼するロールの条件を探す
@@ -84,6 +96,18 @@ function assertStructuredGithubSubs(subs: string[]): void {
 	}
 }
 
+// GitHub ActionsロールにアタッチされたインラインポリシーのStatementを取得する
+function getGithubActionsPolicyStatements(template: Template): Array<{ Action?: string | string[]; Resource?: unknown }> {
+	const policies = template.findResources('AWS::IAM::Policy') as Record<string, IamPolicyResource>;
+	for (const policy of Object.values(policies)) {
+		const policyName = policy.Properties?.PolicyName;
+		if (typeof policyName === 'string' && policyName.includes('GithubActionsRoleDefaultPolicy')) {
+			return policy.Properties?.PolicyDocument?.Statement ?? [];
+		}
+	}
+	throw new Error('GitHub Actions role inline policy was not found');
+}
+
 // BevyPlatformInfraStackのユニットテスト
 describe('BevyPlatformInfraStack', () => {
 	test('creates S3 bucket and GitHub Actions role with branch-scoped trust', () => {
@@ -127,6 +151,18 @@ describe('BevyPlatformInfraStack', () => {
 			'repo:octo-org/bevy-platform-infra:ref:refs/heads/main',
 		]);
 		assertStructuredGithubSubs(subs);
+		// CDK bootstrapロールを引き受けるためのSTS権限が含まれていることを確認
+		const policyStatements = getGithubActionsPolicyStatements(template);
+		const assumeBootstrapStatement = policyStatements.find((statement) => {
+			const actions = Array.isArray(statement.Action) ? statement.Action : [statement.Action];
+			return actions.includes('sts:AssumeRole') && actions.includes('sts:TagSession');
+		});
+		expect(assumeBootstrapStatement).toBeDefined();
+		const resourceJson = JSON.stringify(assumeBootstrapStatement?.Resource);
+		expect(resourceJson).toContain('cdk-hnb659fds-deploy-role-123456789012-');
+		expect(resourceJson).toContain('cdk-hnb659fds-file-publishing-role-123456789012-');
+		expect(resourceJson).toContain('cdk-hnb659fds-image-publishing-role-123456789012-');
+		expect(resourceJson).toContain('cdk-hnb659fds-lookup-role-123456789012-');
 		// GitHub OIDCロールのARNがスタックの出力に含まれていることを確認
 		template.hasOutput('GithubActionsRoleArn', {});
 	});

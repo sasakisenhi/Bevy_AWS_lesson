@@ -122,6 +122,24 @@ export function createGithubActionsRole({
     }),
   );
 
+  // CDK bootstrapロール（デプロイ/アセット公開/ルックアップ）の引き受け権限を付与する。
+  // bootstrapバケットのバケットポリシーは、通常これらのロール経由のアクセスを前提にしているため、
+  // AssumeRoleできないとアセット公開時に403になる。
+  githubRole.addToPolicy(
+    new iam.PolicyStatement({
+      actions: [
+        'sts:AssumeRole',
+        'sts:TagSession',
+      ],
+      resources: [
+        `arn:${cdk.Aws.PARTITION}:iam::${account}:role/cdk-hnb659fds-deploy-role-${account}-*`,
+        `arn:${cdk.Aws.PARTITION}:iam::${account}:role/cdk-hnb659fds-file-publishing-role-${account}-*`,
+        `arn:${cdk.Aws.PARTITION}:iam::${account}:role/cdk-hnb659fds-image-publishing-role-${account}-*`,
+        `arn:${cdk.Aws.PARTITION}:iam::${account}:role/cdk-hnb659fds-lookup-role-${account}-*`,
+      ],
+    }),
+  );
+
   // CDK Nagの警告を抑制。理由は、GitHub Actionsが動的なオブジェクトキーとCloudFormationスタックIDサフィックスを扱うため、
   // リソース末尾ワイルドカードが必要になるため。
   NagSuppressions.addResourceSuppressions(
@@ -130,7 +148,10 @@ export function createGithubActionsRole({
       {
         id: 'AwsSolutions-IAM5',
         reason: 'GitHub Actions uses dynamic object keys and CloudFormation stack-id suffixes, requiring wildcard resource suffixes while actions remain explicitly scoped.',
-        appliesTo: [{ regex: '/^Resource::.*\/\*$/' }],
+        appliesTo: [
+          { regex: '/^Resource::.*\/\*$/' },
+          { regex: '/^Resource::arn:.*:iam::\d{12}:role\/cdk-hnb659fds-.*-\*$/' },
+        ],
       },
     ],
     true,
