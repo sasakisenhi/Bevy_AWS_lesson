@@ -73,6 +73,7 @@ export function createGithubActionsRole({
     new iam.PolicyStatement({
       actions: [
         'cloudformation:DescribeStacks',
+        'cloudformation:GetTemplate',
       ],
       resources: [
         `arn:${cdk.Aws.PARTITION}:cloudformation:*:${account}:stack/BevyPlatformInfraStack/*`,
