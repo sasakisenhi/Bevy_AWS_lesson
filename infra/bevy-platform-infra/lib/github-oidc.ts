@@ -68,6 +68,34 @@ export function createGithubActionsRole({
     }),
   );
 
+  // CDK bootstrap assets バケット（各リージョン）へのテンプレート/アセット公開権限を付与する。
+  githubRole.addToPolicy(
+    new iam.PolicyStatement({
+      actions: [
+        's3:ListBucket',
+        's3:GetBucketLocation',
+      ],
+      resources: [
+        `arn:${cdk.Aws.PARTITION}:s3:::cdk-hnb659fds-assets-${account}-*`,
+      ],
+    }),
+  );
+
+  githubRole.addToPolicy(
+    new iam.PolicyStatement({
+      actions: [
+        's3:GetObject',
+        's3:PutObject',
+        's3:DeleteObject',
+        's3:AbortMultipartUpload',
+        's3:ListMultipartUploadParts',
+      ],
+      resources: [
+        `arn:${cdk.Aws.PARTITION}:s3:::cdk-hnb659fds-assets-${account}-*/*`,
+      ],
+    }),
+  );
+
   // CloudFormation outputsを参照して実行時設定を動的解決するための読み取り権限を付与する。
   githubRole.addToPolicy(
     new iam.PolicyStatement({
