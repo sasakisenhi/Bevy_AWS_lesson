@@ -82,6 +82,18 @@ export function createGithubActionsRole({
     }),
   );
 
+  // CDK bootstrap version確認で参照されるSSMパラメータの読み取り権限を付与する。
+  githubRole.addToPolicy(
+    new iam.PolicyStatement({
+      actions: [
+        'ssm:GetParameter',
+      ],
+      resources: [
+        `arn:${cdk.Aws.PARTITION}:ssm:*:${account}:parameter/cdk-bootstrap/hnb659fds/version`,
+      ],
+    }),
+  );
+
   // CDK Nagの警告を抑制。理由は、GitHub Actionsが動的なオブジェクトキーとCloudFormationスタックIDサフィックスを扱うため、
   // リソース末尾ワイルドカードが必要になるため。
   NagSuppressions.addResourceSuppressions(
