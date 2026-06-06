@@ -31,6 +31,7 @@ interface OidcCondition {
 	StringLike?: Record<string, string | string[]>;
 }
 
+// IAMポリシーのリソース構造を定義するインターフェース
 interface IamPolicyResource {
 	Properties?: {
 		PolicyName?: string;
