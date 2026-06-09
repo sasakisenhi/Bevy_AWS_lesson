@@ -1,0 +1,13 @@
+{
+  "ref": "refs/heads/master",
+  "repository": {
+    "name": "Bevy_AWS_lesson",
+    "full_name": "sasakisenhi/Bevy_AWS_lesson",
+    "owner": {
+      "login": "sasakisenhi"
+    }
+  },
+  "inputs": {
+    "run_deploy": "true"
+  }
+}

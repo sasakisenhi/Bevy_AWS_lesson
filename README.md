@@ -82,10 +82,32 @@ game_core
 
 ## 実行・ビルドについて
 
-（※ ここはプロジェクトが進んだ段階で追記する）
-
 - Rust: stable
-- ビルド・実行方法は後日 README に追記予定
+- ローカル実行: `./script/run-runtime.sh`
+- GitHub Actions のローカル再現: `act` を利用
+
+### GitHub Actions を `act` で動かす
+
+前提:
+
+- Docker が使えること
+- `act` がインストール済みであること
+
+主要コマンド:
+
+- app CI: `./script/act-app-ci.sh`
+- infra test: `./script/act-infra-test.sh`
+- infra deploy: `./script/act-infra-deploy.sh`
+- artifact freeze: `./script/act-artifact-freeze.sh`
+
+`infra deploy` / `artifact freeze` は AWS 認証が必要です。雛形ファイルをコピーしてから使ってください。
+
+```text
+cp .act/infra-ci.secrets.example .act/infra-ci.secrets.local
+cp .act/infra-ci.env.example .act/infra-ci.env.local
+```
+
+詳細は [`./.act/README.md`](./.act/README.md) を参照。
 
 ---
 

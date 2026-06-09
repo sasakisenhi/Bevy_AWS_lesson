@@ -2,6 +2,8 @@
 target/
 .env
 .env.local
+.act/*.local
+.act/*.secrets
 
 # Node.js / npm
 node_modules/
