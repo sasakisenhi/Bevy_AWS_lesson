@@ -6,6 +6,13 @@ use bevy::{
     time::common_conditions::on_real_timer,
 };
 
+mod scenario;
+
+pub use scenario::{
+    DevScenario, DevScenarioId, DevScenarioPlugin, DevScenarioRunRequested, DevScenarioRunResult,
+    DevScenarioState,
+};
+
 pub struct DevModePlugin;
 
 impl Plugin for DevModePlugin {
@@ -135,6 +142,7 @@ fn handle_dev_hotkeys(
 fn update_dev_hud(
     state: Res<DevModeState>,
     info: Res<DevModeInfo>,
+    scenario: Option<Res<DevScenarioState>>,
     diagnostics: Res<DiagnosticsStore>,
     virtual_time: Res<Time<Virtual>>,
     mut roots: Query<&mut Visibility, With<DevHudRoot>>,
@@ -159,6 +167,10 @@ fn update_dev_hud(
     } else {
         format!("{:.2}x", virtual_time.relative_speed())
     };
+    let scenario_text = scenario
+        .as_deref()
+        .map(DevScenarioState::hud_text)
+        .unwrap_or_default();
 
     for mut text in &mut texts {
         **text = format!(
@@ -167,8 +179,15 @@ fn update_dev_hud(
              focus: {}\n\
              fps: {}  frame: {} ms\n\
              time: {}  resets: {}\n\
+             {}\
              F1 hud  F5 reset  F9 pause  F10 slow",
-            info.scene, info.focus, fps, frame_time_ms, time_mode, state.reset_requests
+            info.scene,
+            info.focus,
+            fps,
+            frame_time_ms,
+            time_mode,
+            state.reset_requests,
+            scenario_text
         );
     }
 }
