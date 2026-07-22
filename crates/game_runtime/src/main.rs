@@ -3,9 +3,12 @@ use bevy::prelude::*;
 
 use game_core::Player;
 #[cfg(feature = "dev_tools")]
-use game_devtools::{DevModeInfo, DevModePlugin, DevResetRequested};
+use game_devtools::{DevModeInfo, DevModePlugin, DevScenarioPlugin};
 use game_logic::{Command, apply_command};
 use game_runtime::BuildManifest;
+
+#[cfg(feature = "dev_tools")]
+mod dev_scenarios;
 
 fn main() {
     let manifest = BuildManifest::get();
@@ -27,9 +30,12 @@ fn main() {
 
     // 開発用Pluginはfeatureで隔離し、release runtimeに混ぜない。
     #[cfg(feature = "dev_tools")]
-    app.add_plugins(DevModePlugin)
-        .insert_resource(DevModeInfo::new("prototype", "player movement"))
-        .add_systems(Update, reset_player_on_dev_request);
+    app.add_plugins((
+        DevModePlugin,
+        DevScenarioPlugin::from_ron_path(dev_scenarios::catalog_path()),
+        dev_scenarios::PrototypeDevScenarioPlugin,
+    ))
+    .insert_resource(DevModeInfo::new("prototype", "player movement"));
 
     app.run();
 }
@@ -93,22 +99,5 @@ fn sync_player_position(mut query: Query<(&PlayerComponent, &mut Transform)>) {
     for (player, mut transform) in &mut query {
         transform.translation.x = player.player.position.x;
         transform.translation.y = player.player.position.y;
-    }
-}
-
-// Devtoolsは要求だけを出し、runtimeがゲーム固有のreset内容を決める。
-#[cfg(feature = "dev_tools")]
-fn reset_player_on_dev_request(
-    mut requests: MessageReader<DevResetRequested>,
-    mut query: Query<(&mut PlayerComponent, &mut Transform)>,
-) {
-    if requests.read().next().is_none() {
-        return;
-    }
-
-    for (mut player, mut transform) in &mut query {
-        player.player = Player::new(0.0, 0.0);
-        transform.translation.x = 0.0;
-        transform.translation.y = 0.0;
     }
 }

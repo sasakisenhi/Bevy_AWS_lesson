@@ -2463,6 +2463,8 @@ name = "game_devtools"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "ron",
+ "serde",
 ]
 
 [[package]]
@@ -2482,6 +2484,8 @@ dependencies = [
  "game_core",
  "game_devtools",
  "game_logic",
+ "ron",
+ "serde",
 ]
 
 [[package]]

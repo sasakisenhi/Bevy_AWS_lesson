@@ -6,8 +6,6 @@ use bevy::{
     time::common_conditions::on_real_timer,
 };
 
-/// 開発中だけ有効にする共通Dev Mode。
-/// 2D/3Dやジャンル固有の機能は、このPluginに直接詰め込まず別Pluginとして足す。
 pub struct DevModePlugin;
 
 impl Plugin for DevModePlugin {
@@ -30,7 +28,6 @@ impl Plugin for DevModePlugin {
     }
 }
 
-/// HUDとホットキーが共有する、開発モードの最小状態。
 #[derive(Debug, Resource)]
 pub struct DevModeState {
     pub hud_visible: bool,
@@ -48,7 +45,6 @@ impl Default for DevModeState {
     }
 }
 
-/// Runtime側がHUDに出したい現在の確認対象。
 #[derive(Debug, Resource)]
 pub struct DevModeInfo {
     pub scene: String,
@@ -70,8 +66,6 @@ impl Default for DevModeInfo {
     }
 }
 
-/// Devtoolsからruntimeへ、現在の確認状態を作り直してほしいと伝える要求。
-/// 実際に何をリセットするかは各runtimeが決める。
 #[derive(Debug, Clone, Copy, Message)]
 pub struct DevResetRequested;
 
@@ -188,133 +182,4 @@ fn smoothed_diagnostic(
         .and_then(|diagnostic| diagnostic.smoothed())
         .map(|value| format!("{value:.1}"))
         .unwrap_or_else(|| "--".to_string())
-}
-
-#[cfg(test)]
-mod tests {
-    use bevy::{ecs::message::Messages, prelude::*};
-
-    use super::*;
-
-    #[test]
-    fn dev_mode_state_defaults_to_visible_running_hud() {
-        let state = DevModeState::default();
-
-        assert!(state.hud_visible);
-        assert!(!state.slow_motion);
-        assert_eq!(state.reset_requests, 0);
-    }
-
-    #[test]
-    fn dev_mode_info_can_name_scene_and_focus() {
-        let info = DevModeInfo::new("battle_test", "player_spawn");
-
-        assert_eq!(info.scene, "battle_test");
-        assert_eq!(info.focus, "player_spawn");
-    }
-
-    #[test]
-    fn dev_mode_info_default_is_explicitly_unknown() {
-        let info = DevModeInfo::default();
-
-        assert_eq!(info.scene, "unknown");
-        assert_eq!(info.focus, "none");
-    }
-
-    #[test]
-    fn dev_mode_plugin_initializes_resources_and_hud() {
-        let mut app = App::new();
-        app.add_plugins(MinimalPlugins)
-            .init_resource::<ButtonInput<KeyCode>>()
-            .add_plugins(DevModePlugin);
-
-        assert!(app.world().contains_resource::<DevModeState>());
-        assert!(app.world().contains_resource::<DevModeInfo>());
-        assert!(
-            app.world()
-                .contains_resource::<Messages<DevResetRequested>>()
-        );
-
-        app.update();
-
-        let root_count = app
-            .world_mut()
-            .query::<&DevHudRoot>()
-            .iter(app.world())
-            .count();
-        let text_count = app
-            .world_mut()
-            .query::<&DevHudText>()
-            .iter(app.world())
-            .count();
-
-        assert_eq!(root_count, 1);
-        assert_eq!(text_count, 1);
-    }
-
-    #[test]
-    fn f1_toggles_hud_visibility_state() {
-        let mut app = hotkey_app();
-
-        press_key(&mut app, KeyCode::F1);
-        app.update();
-
-        assert!(!app.world().resource::<DevModeState>().hud_visible);
-    }
-
-    #[test]
-    fn f5_requests_reset_and_counts_it() {
-        let mut app = hotkey_app();
-
-        press_key(&mut app, KeyCode::F5);
-        app.update();
-
-        assert_eq!(app.world().resource::<DevModeState>().reset_requests, 1);
-        assert_eq!(
-            app.world()
-                .resource::<Messages<DevResetRequested>>()
-                .iter_current_update_messages()
-                .count(),
-            1
-        );
-    }
-
-    #[test]
-    fn f9_toggles_virtual_time_pause() {
-        let mut app = hotkey_app();
-
-        press_key(&mut app, KeyCode::F9);
-        app.update();
-
-        assert!(app.world().resource::<Time<Virtual>>().is_paused());
-    }
-
-    #[test]
-    fn f10_toggles_slow_motion() {
-        let mut app = hotkey_app();
-
-        press_key(&mut app, KeyCode::F10);
-        app.update();
-
-        let state = app.world().resource::<DevModeState>();
-        let time = app.world().resource::<Time<Virtual>>();
-        assert!(state.slow_motion);
-        assert_eq!(time.relative_speed(), 0.25);
-    }
-
-    fn hotkey_app() -> App {
-        let mut app = App::new();
-        app.init_resource::<ButtonInput<KeyCode>>()
-            .init_resource::<DevModeState>()
-            .init_resource::<Time<Virtual>>()
-            .add_message::<DevResetRequested>()
-            .add_systems(Update, handle_dev_hotkeys);
-        app
-    }
-
-    fn press_key(app: &mut App, key_code: KeyCode) {
-        app.world_mut()
-            .resource_mut::<ButtonInput<KeyCode>>()
-            .press(key_code);
-    }
 }

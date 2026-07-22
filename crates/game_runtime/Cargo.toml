@@ -5,13 +5,15 @@ edition = "2024"
 
 [features]
 default = []
-dev_tools = ["dep:game_devtools"]
+dev_tools = ["dep:game_devtools", "dep:ron", "dep:serde"]
 
 [dependencies]
 bevy = "0.18.0"
 game_core = { path = "../game_core" }
 game_devtools = { path = "../game_devtools", optional = true }
 game_logic = { path = "../game_logic" }
+ron = { version = "0.12.0", optional = true }
+serde = { version = "1.0.228", features = ["derive"], optional = true }
 
 [build-dependencies]
 build_support = { path = "../build_support" }
