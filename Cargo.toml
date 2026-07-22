@@ -6,6 +6,7 @@ incremental = true
 [workspace]
 members = [
     "crates/game_core",
+    "crates/game_devtools",
     "crates/game_logic",
     "crates/game_runtime",
     "crates/build_support",

@@ -2459,6 +2459,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "game_devtools"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+]
+
+[[package]]
 name = "game_logic"
 version = "0.1.0"
 dependencies = [
@@ -2473,6 +2480,7 @@ dependencies = [
  "bevy",
  "build_support",
  "game_core",
+ "game_devtools",
  "game_logic",
 ]
 

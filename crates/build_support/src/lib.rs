@@ -1,10 +1,10 @@
-//! ビルドスクリプト用の共通ヘルパー
+//! ビルド成果物の由来情報を生成するbuild script用ヘルパー。
 
 use std::env;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// ローカル git から現在のコミット SHA を取得
+/// 現在のcrateディレクトリで解決できるGit SHAを返す。
 pub fn get_git_sha() -> String {
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
     match Command::new("git")
@@ -20,7 +20,7 @@ pub fn get_git_sha() -> String {
     }
 }
 
-/// ローカル用の擬似 Run ID を生成（local-<UNIX秒>）
+/// CI外のビルドにも追跡用IDを持たせる。
 pub fn local_run_id() -> String {
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -29,7 +29,7 @@ pub fn local_run_id() -> String {
     format!("local-{}", secs)
 }
 
-/// BuildInfo の Rust コードを生成
+/// 各crateに埋め込む由来情報のRustコードを生成する。
 pub fn generate_build_info_code(
     crate_label: &str,
     sha: &str,
@@ -40,23 +40,19 @@ pub fn generate_build_info_code(
     let ts = ts_secs.to_string();
     format!(
         r##"
-/// ビルド情報（{crate_label}）
 #[derive(Debug, Clone)]
 pub struct BuildInfo {{
-    /// Git SHA
+    pub crate_label: &'static str,
     pub git_sha: &'static str,
-    /// GitHub Actions Run ID
     pub ci_run_id: &'static str,
-    /// ビルド時刻（UNIX秒）
     pub build_timestamp: &'static str,
-    /// パッケージバージョン
     pub version: &'static str,
 }}
 
 impl BuildInfo {{
-    /// ビルド情報を取得
     pub fn get() -> Self {{
         BuildInfo {{
+            crate_label: "{crate_label}",
             git_sha: "{sha}",
             ci_run_id: "{run_id}",
             build_timestamp: "{ts}",
@@ -64,11 +60,10 @@ impl BuildInfo {{
         }}
     }}
 
-    /// JSON 文字列として返す
     pub fn to_json(&self) -> String {{
         format!(
-            r#"{{{{git_sha:{{}},ci_run_id:{{}},build_timestamp:{{}},version:{{}}}}}}"#,
-            self.git_sha, self.ci_run_id, self.build_timestamp, self.version
+            r#"{{{{crate_label:{{}},git_sha:{{}},ci_run_id:{{}},build_timestamp:{{}},version:{{}}}}}}"#,
+            self.crate_label, self.git_sha, self.ci_run_id, self.build_timestamp, self.version
         )
     }}
 }}
@@ -81,12 +76,14 @@ impl BuildInfo {{
     )
 }
 
+/// 明示的なcrate別SHA、CIのSHA、ローカルGitの順に由来情報を解決する。
 pub fn get_git_sha_with_fallback(primary_var: &str) -> String {
     env::var(primary_var)
         .or_else(|_| env::var("GITHUB_SHA"))
         .unwrap_or_else(|_| get_git_sha())
 }
 
+/// 実行体がどのcore/logic/runtimeから作られたかを一点に集約する。
 pub fn generate_build_manifest_code(
     core_sha: &str,
     logic_sha: &str,
@@ -97,23 +94,16 @@ pub fn generate_build_manifest_code(
     let ts = ts_secs.to_string();
     format!(
         r##"
-/// 実行体の由来情報（責任の一点集約）
 #[derive(Debug, Clone)]
 pub struct BuildManifest {{
-    /// game_core の Git SHA
     pub core_git_sha: &'static str,
-    /// game_logic の Git SHA
     pub logic_git_sha: &'static str,
-    /// game_runtime（自身）の Git SHA
     pub runtime_git_sha: &'static str,
-    /// GitHub Actions Run ID（CI の同一性）
     pub ci_run_id: &'static str,
-    /// ビルド時刻（UNIX秒）
     pub build_timestamp: &'static str,
 }}
 
 impl BuildManifest {{
-    /// マニフェストを取得
     pub fn get() -> Self {{
         BuildManifest {{
             core_git_sha: "{core}",

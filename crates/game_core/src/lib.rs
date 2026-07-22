@@ -1,7 +1,5 @@
-//! game_core ライブラリ
-//! ゲームロジックのコア層
+//! Bevyに依存しないゲーム状態の核。
 
-// ビルド時に生成されたビルド情報を埋め込む
 include!(concat!(env!("OUT_DIR"), "/build_core_info.rs"));
 
 #[derive(Debug, Clone, Copy)]

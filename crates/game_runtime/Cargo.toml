@@ -3,9 +3,14 @@ name = "game_runtime"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = []
+dev_tools = ["dep:game_devtools"]
+
 [dependencies]
 bevy = "0.18.0"
 game_core = { path = "../game_core" }
+game_devtools = { path = "../game_devtools", optional = true }
 game_logic = { path = "../game_logic" }
 
 [build-dependencies]
