@@ -1,0 +1,19 @@
+(
+    scenarios: [
+        (
+            id: "spawn.origin",
+            label: "Spawn Origin",
+            fixture: "fixtures/spawn_origin.ron",
+        ),
+        (
+            id: "spawn.upper_right",
+            label: "Spawn Upper Right",
+            fixture: "fixtures/spawn_upper_right.ron",
+        ),
+        (
+            id: "spawn.lower_left",
+            label: "Spawn Lower Left",
+            fixture: "fixtures/spawn_lower_left.ron",
+        ),
+    ],
+)
