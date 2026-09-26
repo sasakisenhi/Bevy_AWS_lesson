@@ -362,18 +362,4 @@ jobs:
       - name: Cleanup
         if: always()
         shell: bash
-        run: |
-          rm -rf artifact_bundle dist
-            echo "| aws_auth_sec | ${{ steps.metrics.outputs.aws_auth_sec }} |"
-            echo "| cfn_fetch_sec | ${{ steps.metrics.outputs.cfn_fetch_sec }} |"
-            echo "| upload_sec | ${{ steps.metrics.outputs.upload_sec }} |"
-            echo "| artifact_size_bytes | ${{ steps.metrics.outputs.artifact_size_bytes }} |"
-            echo ""
-            echo "xwin_cache_hit: ${{ steps.xwin_cache.outputs.cache-hit }}"
-            echo "rust_cache_hit: ${{ steps.rust_cache.outputs.cache-hit }}"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Cleanup
-        if: always()
-        shell: bash
         run: rm -rf artifact_bundle dist

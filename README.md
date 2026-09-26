@@ -1,132 +1,115 @@
-# Game Simulation Project
+# Bevy開発を支えるCI/CD・AWS基盤
 
-本リポジトリは、  
-**Rust + Bevy を用いた個人ゲーム開発プロジェクト**である。
+Rust + Bevy のゲーム開発を題材に、開発者が変更を検証し、Windows向けビルド成果物を再現可能な形で保管するための基盤を構築している個人プロジェクトである。
 
-単なる完成物の制作ではなく、  
-**設計・試行錯誤・学習の過程そのもの**を重視している。
+ゲームそのものの機能開発に加え、**開発フロー・テスト・ビルド・成果物管理を整える仕事**に関心がある。ゲーム開発環境エンジニアに必要な技術を、実装と設計記録を通じて学ぶことを目的としている。
 
----
+> 個人学習プロジェクトであり、業務での運用実績や本番環境での稼働を示すものではない。設定・テスト済みの内容と、実環境での稼働確認は区別している。
 
-## 目的
+## このプロジェクトで取り組んでいること
 
-- ゲーム開発を通じて、設計力と開発者体験（DX）を高める
-- Rust / Bevy / ECS を用いた構造的なゲーム設計を検証する
-- Copilot などの支援ツールを「設計を理解する補助者」として活用する
+- Rust / Bevy のゲームコードを、変更時に自動で検証する CI
+- AWS CDK（TypeScript）による成果物保管基盤の IaC
+- GitHub Actions と AWS を OIDC で接続するデプロイ経路
+- Windows 向けビルド成果物とビルド情報の S3 保管
+- S3 のアクセスログ、バージョニング、ライフサイクル、クロスリージョンレプリケーション
+- インフラを CDK assertions と cdk-nag で検証する仕組み
 
-このプロジェクトは、  
-**速く作ることよりも、壊れにくく考え続けられること**を優先する。
+## CI/CD の流れ
 
----
-
-## プロジェクトの特徴
-
-- 明確な三層アーキテクチャ
-  - `game_core` / `game_logic` / `game_runtime`
-- ゲームロジックと実行環境（Bevy）の分離
-- テスト可能性を重視した設計
-- 試行錯誤・設計判断をドキュメントとして残す運用
-
----
-
-## アーキテクチャ概要
-
-本プロジェクトは、以下の依存方向を持つ三層構造で設計されている。
-
-game_runtime
-↓
-game_logic
-↓
-game_core
-
-
-- **game_core**  
-  ゲームの本質的な概念・ルール・データ構造を定義する層
-
-- **game_logic**  
-  game_core の概念を用いて、ゲームとしての振る舞いを構成する層
-
-- **game_runtime**  
-  Bevy を用いて、入力・描画・時間などの実行環境と接続する層
-
-詳細は [`architecture.md`](./architecture.md) を参照。
-
----
-
-## 設計ドキュメント
-
-本リポジトリでは、設計をコードの外にも明示的に残している。
-
-- [`architecture.md`](./architecture.md)  
-  壊してはいけない構造・依存方向・責務分離を定義
-
-- [`design.md`](./design.md)  
-  試行錯誤・仮説・代替案・設計判断のログ
-
-- [`copilot-instructions.md`](./copilot-instructions.md)  
-  GitHub Copilot に対する前提条件・制約・価値観の定義
-
----
-
-## 開発方針（要約）
-
-- 正しさ > 速さ > 短さ
-- レイヤー境界を破らない
-- 差分を小さく、段階的に改善する
-- コメントは「なぜ」を書く
-- 公開 API には rustdoc と `# Examples` を原則付ける
-
-詳細は各設計ドキュメントを参照。
-
----
-
-## 実行・ビルドについて
-
-- Rust: stable
-- ローカル実行: `./script/run-runtime.sh`
-- GitHub Actions のローカル再現: `act` を利用
-
-### GitHub Actions を `act` で動かす
-
-前提:
-
-- Docker が使えること
-- `act` がインストール済みであること
-
-主要コマンド:
-
-- app CI: `./script/act-app-ci.sh`
-- infra test: `./script/act-infra-test.sh`
-- infra deploy: `./script/act-infra-deploy.sh`
-- artifact freeze: `./script/act-artifact-freeze.sh`
-
-`infra deploy` / `artifact freeze` は AWS 認証が必要です。雛形ファイルをコピーしてから使ってください。
-
-```text
-cp .act/infra-ci.secrets.example .act/infra-ci.secrets.local
-cp .act/infra-ci.env.example .act/infra-ci.env.local
+```mermaid
+flowchart TD
+    A["Pull request / main push"] --> B["変更パスを判定"]
+    B --> C["アプリ CI: fmt・test・Clippy・build"]
+    B --> D["インフラ CI: CDK strict synth・unit test"]
+    D --> E["main push: AWS OIDC でデプロイ"]
+    E --> F["Windows 向け Release build"]
+    F --> G["ビルド情報と成果物を S3 に保存"]
+    G --> H["別リージョンの S3 に複製"]
 ```
 
-詳細は [`./.act/README.md`](./.act/README.md) を参照。
+ワークフローは変更パスに応じてアプリとインフラの検証を呼び分ける。AWS へのデプロイと成果物の凍結は、対象ブランチへの push 条件を満たした場合に実行する構成である。
 
----
+## 実装の要点
 
-## コントリビューションについて
+### アプリケーション CI
 
-このリポジトリは個人学習を主目的としている。
+- `cargo fmt -- --check`
+- `game_core` / `game_logic` のテストと Clippy
+- `--locked` を付けた依存関係の再現可能なチェック・ビルド
+- Pull request 時に実行する、デプロイを伴わない検証経路
 
-- 提案・議論は歓迎する
-- 設計に関わる変更は、まず Issue での議論を推奨する
+### AWS 基盤（CDK / TypeScript）
 
-詳細は [`CONTRIBUTING.md`](./CONTRIBUTING.md) を参照。
+- 成果物用 S3 バケットとアクセスログ用バケット
+- パブリックアクセスのブロック、暗号化、HTTPS 強制
+- 成果物バケットのバージョニングと保持期間に基づくライフサイクル
+- セカンダリリージョンへの S3 クロスリージョンレプリケーション
+- GitHub Actions の OIDC 信頼条件をリポジトリとブランチに限定
+- cdk-nag の strict synth と CDK assertions による構成テスト
 
----
+### 成果物ビルド
 
-## 最後に
+- `x86_64-pc-windows-msvc` 向け Release ビルド
+- `cargo-xwin` を使った GitHub-hosted runner 上のクロスコンパイル
+- Git SHA、UTC ビルド時刻、Rust コンパイラ情報、Cargo.lock の SHA-256、crate 名を含むメタデータを作成
+- 成果物を S3 に保存し、バケットのレプリケーション設定で別リージョンへ複製
 
-このリポジトリは、  
-**「完成したゲーム」よりも  
-「考えながら作り続けられる構造」**を大切にしている。
+## 技術構成
 
-試行錯誤は歓迎され、  
-失敗は設計を洗練させるための材料である。
+| 領域 | 使用技術 |
+|---|---|
+| ゲーム | Rust、Bevy、Cargo workspace |
+| IaC | TypeScript、AWS CDK、CloudFormation |
+| CI/CD | GitHub Actions、再利用可能 workflow、変更パス判定 |
+| AWS | S3、IAM、GitHub OIDC、CloudWatch Logs |
+| 検証 | Rust tests、rustfmt、Clippy、Jest、CDK assertions、cdk-nag |
+| ローカル再現 | Docker、[act](./.act/README.md) |
+
+## 設計・実装を読む
+
+- [アーキテクチャ](./architecture.md) — ゲームコードのレイヤー分離と依存方向
+- [設計判断・試行錯誤](./design.md) — 仮説、代替案、インフラ設計の記録
+- [CI/CD workflow](./.github/workflows/ci.yml) — パス判定と各 workflow の呼び出し
+- [アプリ CI](./.github/workflows/app-ci-job.yml)
+- [インフラテスト](./.github/workflows/infra-test-job.yml)
+- [インフラデプロイ](./.github/workflows/infra-deploy-job.yml)
+- [成果物ビルド・保存](./.github/workflows/artifact-job.yml)
+- [AWS CDK package](./infra/bevy-platform-infra/README.md)
+
+## ローカルでの確認
+
+Rust の検証:
+
+```bash
+cargo fmt -- --check
+cargo test -p game_core --locked
+cargo test -p game_logic --locked
+cargo clippy -p game_core -- -D warnings
+cargo clippy -p game_logic -- -D warnings
+```
+
+インフラのテストと synth:
+
+```bash
+cd infra/bevy-platform-infra
+npm ci
+npm test
+CDK_DEFAULT_ACCOUNT=123456789012 npm run synth -- BevyPlatformInfraStack --strict -c env=dev
+```
+
+GitHub Actions のローカル再現には Docker と `act` を使う。実行方法と必要な環境変数は [act 利用ガイド](./.act/README.md) を参照。AWS デプロイには AWS 側の設定と認証が必要である。
+
+## 現在の検証状況
+
+master の最新フルパイプラインである [run #55](https://github.com/sasakisenhi/Bevy_AWS_lesson/actions/runs/29923030521)（2026-07-22）では、App CI と Infra Test は成功した。Infra Test では cdk-nag の strict synth とインフラユニットテストが通っている。一方、Infra Deploy は GitHub Actions から AWS IAM ロールを引き受ける段階で `Not authorized to perform sts:AssumeRoleWithWebIdentity` により失敗し、CDK diff/deploy と Artifact Freeze は実行されなかった。
+
+したがって、現時点で示せるのは **CI/CD と AWS デプロイ経路を設計・実装したこと**である。AWS デプロイの正常稼働を確認済みとはしていない。OIDC の信頼設定を確認し、デプロイから成果物保管までの一連の実行を改めて検証する必要がある。
+
+## 現時点の範囲と次の検証
+
+CodeBuild については、将来のビルド移行に備えた IAM サービスロールを定義している段階であり、現在のビルド workflow から CodeBuild の `StartBuild` は呼び出していない。また、この README の更新時点では、AWS 上での継続運用実績やビルド時間短縮などの定量値は提示していない。今後は実環境でのデプロイ・復旧手順を検証し、実測値と運用上の課題を記録する。
+
+## 関連資料
+
+- [開発への参加方法](./CONTRIBUTING.md)
