@@ -102,9 +102,11 @@ GitHub Actions のローカル再現には Docker と `act` を使う。実行�
 
 ## 現在の検証状況
 
-master の最新フルパイプラインである [run #55](https://github.com/sasakisenhi/Bevy_AWS_lesson/actions/runs/29923030521)（2026-07-22）では、App CI と Infra Test は成功した。Infra Test では cdk-nag の strict synth とインフラユニットテストが通っている。一方、Infra Deploy は GitHub Actions から AWS IAM ロールを引き受ける段階で `Not authorized to perform sts:AssumeRoleWithWebIdentity` により失敗し、CDK diff/deploy と Artifact Freeze は実行されなかった。
+master で AWS デプロイまで進む構成を実行した run #55（2026-07-22）と run #61（2026-09-26）では、Infra Test が成功した。run #55 では App CI も成功している。run #61 はインフラ関連の変更に対する実行であり、パス判定により App CI は skip された。
 
-したがって、現時点で示せるのは **CI/CD と AWS デプロイ経路を設計・実装したこと**である。AWS デプロイの正常稼働を確認済みとはしていない。OIDC の信頼設定を確認し、デプロイから成果物保管までの一連の実行を改めて検証する必要がある。
+両 run とも Infra Deploy は GitHub Actions から AWS IAM ロールを引き受ける段階で `Not authorized to perform sts:AssumeRoleWithWebIdentity` により失敗し、CDK diff/deploy と Artifact Freeze は実行されなかった。現在、このプロジェクトの検証用 AWS アカウントは停止中である。このエラーだけでは、アカウント停止と IAM 信頼ポリシーのどちらが原因かを切り分けられない。
+
+したがって、現時点で示せるのは **CI/CD と AWS デプロイ経路を設計・実装し、アプリ CI とインフラテストを通したこと**である。AWS デプロイの正常稼働は確認済みとしていない。検証環境を再び利用できる状態にした後、OIDC の信頼条件を確認し、デプロイから成果物保管までを再検証する必要がある。
 
 ## 現時点の範囲と次の検証
 
