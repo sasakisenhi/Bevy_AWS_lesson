@@ -104,7 +104,7 @@ GitHub Actions のローカル再現には Docker と `act` を使う。実行�
 
 master で AWS デプロイまで進む構成を実行した run #55（2026-07-22）と run #61（2026-09-26）では、Infra Test が成功した。run #55 では App CI も成功している。run #61 はインフラ関連の変更に対する実行であり、パス判定により App CI は skip された。
 
-両 run とも Infra Deploy は GitHub Actions から AWS IAM ロールを引き受ける段階で `Not authorized to perform sts:AssumeRoleWithWebIdentity` により失敗し、CDK diff/deploy と Artifact Freeze は実行されなかった。現在、このプロジェクトの検証用 AWS アカウントは停止中である。このエラーだけでは、アカウント停止と IAM 信頼ポリシーのどちらが原因かを切り分けられない。
+両 run とも Infra Deploy は GitHub Actions から AWS IAM ロールを引き受ける段階で `Not authorized to perform sts:AssumeRoleWithWebIdentity` により失敗し、CDK diff/deploy と Artifact Freeze は実行されなかった。現在、このプロジェクトの検証用 AWS アカウントは停止され、停止から90日を過ぎている。AWSの無料アカウントプランでは終了後90日以内に有料プランへ切り替えなければアカウントが永久閉鎖され、再開できないと案内されている（[AWS公式説明](https://docs.aws.amazon.com/awsaccountbilling/latest/aboutv2/free-tier-plans.html)）。したがって、このアカウントでの実AWSデプロイ再検証はできない。OIDCのエラー自体は、停止中のアカウントでは信頼ポリシーの検証にも使えないため、別の検証環境を使う場合に改めて確認する。
 
 したがって、現時点で示せるのは **CI/CD と AWS デプロイ経路を設計・実装し、アプリ CI とインフラテストを通したこと**である。AWS デプロイの正常稼働は確認済みとしていない。検証環境を再び利用できる状態にした後、OIDC の信頼条件を確認し、デプロイから成果物保管までを再検証する必要がある。
 
