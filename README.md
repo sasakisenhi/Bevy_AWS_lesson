@@ -100,6 +100,12 @@ CDK_DEFAULT_ACCOUNT=123456789012 npm run synth -- BevyPlatformInfraStack --stric
 
 GitHub Actions のローカル再現には Docker と `act` を使う。実行方法と必要な環境変数は [act 利用ガイド](./.act/README.md) を参照。AWS デプロイには AWS 側の設定と認証が必要である。
 
+## 現在の検証状況
+
+master の最新フルパイプラインである [run #55](https://github.com/sasakisenhi/Bevy_AWS_lesson/actions/runs/29923030521)（2026-07-22）では、App CI と Infra Test は成功した。Infra Test では cdk-nag の strict synth とインフラユニットテストが通っている。一方、Infra Deploy は GitHub Actions から AWS IAM ロールを引き受ける段階で `Not authorized to perform sts:AssumeRoleWithWebIdentity` により失敗し、CDK diff/deploy と Artifact Freeze は実行されなかった。
+
+したがって、現時点で示せるのは **CI/CD と AWS デプロイ経路を設計・実装したこと**である。AWS デプロイの正常稼働を確認済みとはしていない。OIDC の信頼設定を確認し、デプロイから成果物保管までの一連の実行を改めて検証する必要がある。
+
 ## 現時点の範囲と次の検証
 
 CodeBuild については、将来のビルド移行に備えた IAM サービスロールを定義している段階であり、現在のビルド workflow から CodeBuild の `StartBuild` は呼び出していない。また、この README の更新時点では、AWS 上での継続運用実績やビルド時間短縮などの定量値は提示していない。今後は実環境でのデプロイ・復旧手順を検証し、実測値と運用上の課題を記録する。
