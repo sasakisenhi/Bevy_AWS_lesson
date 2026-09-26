@@ -68,7 +68,7 @@ flowchart TD
 
 ## 設計・実装を読む
 
-- [アーキテクチャ](./achitecture.md) — ゲームコードのレイヤー分離と依存方向
+- [アーキテクチャ](./architecture.md) — ゲームコードのレイヤー分離と依存方向
 - [設計判断・試行錯誤](./design.md) — 仮説、代替案、インフラ設計の記録
 - [CI/CD workflow](./.github/workflows/ci.yml) — パス判定と各 workflow の呼び出し
 - [アプリ CI](./.github/workflows/app-ci-job.yml)
@@ -95,7 +95,7 @@ cargo clippy -p game_logic -- -D warnings
 cd infra/bevy-platform-infra
 npm ci
 npm test
-npm run synth -- BevyPlatformInfraStack --strict -c env=dev
+CDK_DEFAULT_ACCOUNT=123456789012 npm run synth -- BevyPlatformInfraStack --strict -c env=dev
 ```
 
 GitHub Actions のローカル再現には Docker と `act` を使う。実行方法と必要な環境変数は [act 利用ガイド](./.act/README.md) を参照。AWS デプロイには AWS 側の設定と認証が必要である。
