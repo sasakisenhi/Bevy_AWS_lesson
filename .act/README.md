@@ -50,7 +50,7 @@ cp .act/infra-ci.env.example .act/infra-ci.env.local
 
 `act` は GitHub Hosted Runner の OIDC 発行環境そのものではないため、
 `aws-actions/configure-aws-credentials@v4` をローカルで動かす際は、
-AssumeRole の元になる AWS 認証情報を `--env-file` でコンテナへ渡すのが安全です。
+AssumeRole の元になる有効期限付きの一時認証情報を `--env-file` でコンテナへ渡します。長期 Access Key / Secret Access Key の作成を標準手順にはしません。GitHub-hosted runner 上の workflow はこのローカル代替経路を使わず、GitHub OIDC で IAM Role を引き受けます。
 
 ## AWS_ROLE_ARN の考え方
 
@@ -60,7 +60,7 @@ AssumeRole の元になる AWS 認証情報を `--env-file` でコンテナへ�
 形式例:
 
 ```text
-arn:aws:iam::774786166706:role/BevyPlatformInfraStack-GithubActionsRoleF5CC769F-xxxxxxxxxxxx
+arn:aws:iam::<account-id>:role/BevyPlatformInfraStack-GithubActionsRoleF5CC769F-xxxxxxxxxxxx
 ```
 
 ロール名の末尾サフィックスは環境ごとに異なるため、実際の ARN を AWS 側で確認して設定してください。
@@ -69,13 +69,14 @@ arn:aws:iam::774786166706:role/BevyPlatformInfraStack-GithubActionsRoleF5CC769F-
 
 ```text
 aws cloudformation describe-stacks \
+  --profile <admin-profile> \
   --region ap-northeast-1 \
   --stack-name BevyPlatformInfraStack \
   --query "Stacks[0].Outputs[?OutputKey=='GithubActionsRoleArn'].OutputValue" \
   --output text
 ```
 
-もしセッション切れで取得できない場合は、先に `aws login` を行ってから再実行してください。
+もしセッション切れで取得できない場合は、先に `aws login --profile <admin-profile>` を行ってから再実行してください。
 
 ## 実行例
 
