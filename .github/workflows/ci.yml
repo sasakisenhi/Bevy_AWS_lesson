@@ -85,6 +85,7 @@ jobs:
     name: Call Artifact Freeze
     needs: [changes, call-app-ci, call-infra-deploy]
     if: |
+      always() &&
       github.event_name == 'push' &&
       needs.changes.outputs.infra == 'true' &&
       (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') &&
