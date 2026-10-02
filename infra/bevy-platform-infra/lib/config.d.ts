@@ -7,7 +7,6 @@ export declare const STORAGE_CONFIG: {
 export declare const GITHUB_OIDC_CONFIG: {
     readonly PROVIDER_URL: "https://token.actions.githubusercontent.com";
     readonly CLIENT_ID: "sts.amazonaws.com";
-    readonly THUMBPRINT: "6938fd4d98bab03faadb97b34396831e3780a188";
     readonly DEFAULT_BRANCHES: readonly ["main", "master"];
     readonly PLACEHOLDER_OWNER: "<github-owner>";
     readonly PLACEHOLDER_REPO: "<github-repo>";

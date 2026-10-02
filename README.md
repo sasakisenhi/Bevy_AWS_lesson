@@ -100,6 +100,29 @@ CDK_DEFAULT_ACCOUNT=123456789012 npm run synth -- BevyPlatformInfraStack --stric
 
 GitHub Actions のローカル再現には Docker と `act` を使う。実行方法と必要な環境変数は [act 利用ガイド](./.act/README.md) を参照。AWS デプロイには AWS 側の設定と認証が必要である。
 
+## 新しい AWS アカウントの初期構築・復旧
+
+初回の端末セットアップでは GitHub CLI を認証する。
+
+```bash
+gh auth login
+```
+
+新しい AWS アカウントを用意した後は、AWS CLI で人間が認証し、bootstrap スクリプトを1回実行する。
+
+```bash
+aws login --profile bevy
+./script/bootstrap-aws-account.sh --profile bevy
+```
+
+スクリプトは認証済み profile から AWS Account ID を取得し、2リージョンの CDK bootstrap、全スタックのデプロイ、GitHub Actions 用 repository variables / secret の設定、AWS・GitHub 両方の構築結果の検証まで行う。AWS Access Key / Secret Access Key の作成は標準手順として使用しない。
+
+変更を加えず対象アカウント、repository、branch、実行予定を確認する場合は `--dry-run` を指定する。
+
+```bash
+./script/bootstrap-aws-account.sh --profile bevy --dry-run
+```
+
 ## 現在の検証状況
 
 master で AWS デプロイまで進む構成を実行した run #55（2026-07-22）と run #61（2026-09-26）では、Infra Test が成功した。run #55 では App CI も成功している。run #61 はインフラ関連の変更に対する実行であり、パス判定により App CI は skip された。

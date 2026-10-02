@@ -21,17 +21,14 @@ export function createGithubActionsRole({
   artifactBucket,
   githubSubs,
 }: GithubOidcRoleProps): iam.Role {
-  const existingProviderArn = `arn:aws:iam::${account}:oidc-provider/token.actions.githubusercontent.com`;
-
-  const githubProvider = iam.OpenIdConnectProvider.fromOpenIdConnectProviderArn(
-    scope,
-    'GithubProvider',
-    existingProviderArn,
-  );
+  const githubProvider = new iam.OidcProviderNative(scope, 'GithubProvider', {
+    url: GITHUB_OIDC_CONFIG.PROVIDER_URL,
+    clientIds: [GITHUB_OIDC_CONFIG.CLIENT_ID],
+  });
 
   const githubRole = new iam.Role(scope, 'GithubActionsRole', {
     assumedBy: new iam.WebIdentityPrincipal(
-      githubProvider.openIdConnectProviderArn,
+      githubProvider.oidcProviderArn,
       {
         StringEquals: {
           'token.actions.githubusercontent.com:aud': GITHUB_OIDC_CONFIG.CLIENT_ID,

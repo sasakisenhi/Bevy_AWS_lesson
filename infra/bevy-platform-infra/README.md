@@ -25,6 +25,18 @@ AWS CDK（TypeScript）で Bevy プラットフォーム用のインフラを定
 - `npx cdk diff` : デプロイ済みとの差分を確認
 - `npx cdk deploy` : スタックをデプロイ
 
+## 新しい AWS アカウントへの初回デプロイ
+
+GitHub CLI を初回のみ認証した後、リポジトリルートで AWS CLI の対話認証と bootstrap スクリプトを実行します。
+
+```bash
+gh auth login
+aws login --profile bevy
+./script/bootstrap-aws-account.sh --profile bevy
+```
+
+スクリプトは AWS Account ID と GitHub repository/default branch を自動解決し、両リージョンの CDK bootstrap、スタックのデプロイ、GitHub repository variables と `AWS_ROLE_ARN` secret の設定、構築結果の検証まで行います。GitHub Actions 用 IAM OIDC Provider はプライマリスタックの `AWS::IAM::OIDCProvider` として作成されるため、AWS Console で事前作成する必要はありません。
+
 ## 注意事項
 
 - 命名規則はリポジトリルートの `design.md` に定義しています。

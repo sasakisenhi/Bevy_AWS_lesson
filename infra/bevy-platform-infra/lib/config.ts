@@ -10,7 +10,6 @@ export const STORAGE_CONFIG = {
 export const GITHUB_OIDC_CONFIG = {
   PROVIDER_URL: 'https://token.actions.githubusercontent.com',
   CLIENT_ID: 'sts.amazonaws.com',
-  THUMBPRINT: '6938fd4d98bab03faadb97b34396831e3780a188',
   DEFAULT_BRANCHES: ['main', 'master'],
   PLACEHOLDER_OWNER: '<github-owner>',
   PLACEHOLDER_REPO: '<github-repo>',

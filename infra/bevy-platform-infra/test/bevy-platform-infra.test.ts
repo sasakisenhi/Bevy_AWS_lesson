@@ -31,6 +31,14 @@ interface OidcCondition {
 	StringLike?: Record<string, string | string[]>;
 }
 
+interface IamTrustStatement {
+	Action?: string | string[];
+	Condition?: OidcCondition;
+	Principal?: {
+		Federated?: unknown;
+	};
+}
+
 // IAMポリシーのリソース構造を定義するインターフェース
 interface IamPolicyResource {
 	Properties?: {
@@ -45,14 +53,14 @@ interface IamPolicyResource {
 }
 
 // GitHub OIDCの信頼条件をテンプレートから抽出するユーティリティ関数
-function getGithubOidcCondition(template: Template): OidcCondition {
+function getGithubOidcTrustStatement(template: Template): IamTrustStatement {
 	// テンプレートからIAMロールをすべて取得し、GitHub OIDCを信頼するロールの条件を探す
 	const roles = template.findResources('AWS::IAM::Role') as Record<string, {
 		// AssumeRolePolicyDocumentの構造は、Statementが配列であることが一般的ですが、念のため型を広く取る
 		Properties?: {
 			AssumeRolePolicyDocument?: {
 				// Statementは配列であることが一般的ですが、AWS CDKの生成するテンプレートではオブジェクトになることもあるため、両方に対応できるようにする
-				Statement?: Array<{ Action?: string | string[]; Condition?: OidcCondition }>;
+				Statement?: IamTrustStatement[];
 			};
 		};
 	}>;
@@ -70,14 +78,20 @@ function getGithubOidcCondition(template: Template): OidcCondition {
 			if (!actions.includes('sts:AssumeRoleWithWebIdentity')) {
 				continue;
 			}
-			// GitHub OIDCの信頼条件が見つかった場合は、それを返す
-			if (statement.Condition) {
-				return statement.Condition;
-			}
+			return statement;
 		}
 	}
 	// GitHub OIDCの信頼条件が見つからなかった場合はエラーをスローする
-	throw new Error('GitHub OIDC trust condition was not found in IAM role');
+	throw new Error('GitHub OIDC trust statement was not found in IAM role');
+}
+
+// GitHub OIDCの信頼条件をテンプレートから抽出するユーティリティ関数
+function getGithubOidcCondition(template: Template): OidcCondition {
+	const condition = getGithubOidcTrustStatement(template).Condition;
+	if (!condition) {
+		throw new Error('GitHub OIDC trust condition was not found in IAM role');
+	}
+	return condition;
 }
 // GitHub OIDCのサブクレームを条件から抽出するユーティリティ関数
 function getGithubSubs(condition: OidcCondition): string[] {
@@ -127,6 +141,13 @@ describe('BevyPlatformInfraStack', () => {
 		});
 		// テンプレートからリソースの存在とプロパティを検証
 		const template = Template.fromStack(stack);
+		// GitHub OIDC ProviderがCloudFormation管理で作成され、固定thumbprintに依存しないことを確認
+		template.resourceCountIs('AWS::IAM::OIDCProvider', 1);
+		template.hasResourceProperties('AWS::IAM::OIDCProvider', {
+			Url: 'https://token.actions.githubusercontent.com',
+			ClientIdList: ['sts.amazonaws.com'],
+			ThumbprintList: Match.absent(),
+		});
 		// S3バケットが2つ作成されていることを確認
 		template.resourceCountIs('AWS::S3::Bucket', 2);
 		// プライマリ成果物バケット名が命名規則に沿っていることを確認
@@ -142,7 +163,14 @@ describe('BevyPlatformInfraStack', () => {
 			BucketName: Match.stringLikeRegexp(LOG_BUCKET_NAME_REGEX),
 			LoggingConfiguration: Match.absent(),
 		});
-		// GitHub OIDCロールの信頼ポリシーが正しく設定されていることを確認
+		// GitHub OIDCロールが作成したProviderを参照し、信頼条件が正しく設定されていることを確認
+		const oidcProviderLogicalId = Object.keys(
+			template.findResources('AWS::IAM::OIDCProvider'),
+		)[0];
+		const oidcTrustStatement = getGithubOidcTrustStatement(template);
+		expect(oidcTrustStatement.Principal?.Federated).toEqual({
+			Ref: oidcProviderLogicalId,
+		});
 		const oidcCondition = getGithubOidcCondition(template);
 		expect(oidcCondition.StringEquals).toEqual({
 			[GITHUB_AUD_CLAIM]: 'sts.amazonaws.com',
@@ -164,6 +192,20 @@ describe('BevyPlatformInfraStack', () => {
 		expect(resourceJson).toContain('cdk-hnb659fds-file-publishing-role-123456789012-');
 		expect(resourceJson).toContain('cdk-hnb659fds-image-publishing-role-123456789012-');
 		expect(resourceJson).toContain('cdk-hnb659fds-lookup-role-123456789012-');
+		// OIDC Providerの管理変更によって既存の権限セットが変わっていないことを確認
+		const actionSets = policyStatements.map((statement) => {
+			const actions = Array.isArray(statement.Action) ? statement.Action : [statement.Action];
+			return actions.filter((action): action is string => typeof action === 'string').sort();
+		});
+		expect(actionSets).toEqual([
+			['s3:GetBucketLocation', 's3:ListBucket'],
+			['s3:AbortMultipartUpload', 's3:DeleteObject', 's3:GetObject', 's3:ListMultipartUploadParts', 's3:PutObject'],
+			['s3:GetBucketLocation', 's3:ListBucket'],
+			['s3:AbortMultipartUpload', 's3:DeleteObject', 's3:GetObject', 's3:ListMultipartUploadParts', 's3:PutObject'],
+			['cloudformation:DescribeStacks', 'cloudformation:GetTemplate'],
+			['ssm:GetParameter'],
+			['sts:AssumeRole', 'sts:TagSession'],
+		]);
 		// GitHub OIDCロールのARNがスタックの出力に含まれていることを確認
 		template.hasOutput('GithubActionsRoleArn', {});
 	});
