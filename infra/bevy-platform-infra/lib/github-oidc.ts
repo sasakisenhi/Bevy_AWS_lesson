@@ -107,6 +107,19 @@ export function createGithubActionsRole({
     }),
   );
 
+  // bootstrap確認ではCDKToolkitの状態だけを参照する。Application Stack用の権限とは分離し、
+  // GetTemplateなど不要なActionをbootstrap stackへ許可しない。
+  githubRole.addToPolicy(
+    new iam.PolicyStatement({
+      actions: [
+        'cloudformation:DescribeStacks',
+      ],
+      resources: [
+        `arn:${cdk.Aws.PARTITION}:cloudformation:*:${account}:stack/CDKToolkit/*`,
+      ],
+    }),
+  );
+
   // CDK bootstrap version確認で参照されるSSMパラメータの読み取り権限を付与する。
   githubRole.addToPolicy(
     new iam.PolicyStatement({

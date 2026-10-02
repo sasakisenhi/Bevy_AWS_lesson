@@ -192,6 +192,17 @@ describe('BevyPlatformInfraStack', () => {
 		expect(resourceJson).toContain('cdk-hnb659fds-file-publishing-role-123456789012-');
 		expect(resourceJson).toContain('cdk-hnb659fds-image-publishing-role-123456789012-');
 		expect(resourceJson).toContain('cdk-hnb659fds-lookup-role-123456789012-');
+		// bootstrap診断に必要なDescribeStacksだけがCDKToolkitに許可されることを確認
+		const describeBootstrapStatement = policyStatements.find((statement) => {
+			const actions = Array.isArray(statement.Action) ? statement.Action : [statement.Action];
+			return actions.length === 1 && actions[0] === 'cloudformation:DescribeStacks' &&
+				JSON.stringify(statement.Resource).includes('stack/CDKToolkit/');
+		});
+		expect(describeBootstrapStatement).toBeDefined();
+		expect(describeBootstrapStatement?.Action).toEqual('cloudformation:DescribeStacks');
+		expect(JSON.stringify(describeBootstrapStatement?.Resource)).toContain(
+			':cloudformation:*:123456789012:stack/CDKToolkit/*',
+		);
 		// OIDC Providerの管理変更によって既存の権限セットが変わっていないことを確認
 		const actionSets = policyStatements.map((statement) => {
 			const actions = Array.isArray(statement.Action) ? statement.Action : [statement.Action];
@@ -203,6 +214,7 @@ describe('BevyPlatformInfraStack', () => {
 			['s3:GetBucketLocation', 's3:ListBucket'],
 			['s3:AbortMultipartUpload', 's3:DeleteObject', 's3:GetObject', 's3:ListMultipartUploadParts', 's3:PutObject'],
 			['cloudformation:DescribeStacks', 'cloudformation:GetTemplate'],
+			['cloudformation:DescribeStacks'],
 			['ssm:GetParameter'],
 			['sts:AssumeRole', 'sts:TagSession'],
 		]);
